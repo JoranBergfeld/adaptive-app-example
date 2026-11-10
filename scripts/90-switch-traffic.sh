@@ -50,6 +50,15 @@ for origin in "$other_target" "$target"; do
     --output none
 done
 
+az deployment group create \
+  --subscription "$AZURE_SUBSCRIPTION_ID" \
+  --resource-group "$AZURE_RESOURCE_GROUP" \
+  --name adaptive-shop-front-door-route \
+  --template-file "$REPO_ROOT/infra/azure/front-door-route.bicep" \
+  --parameters "frontDoorProfileName=$FRONT_DOOR_PROFILE_NAME" \
+  --only-show-errors \
+  --output none
+
 front_door_host="$(az afd endpoint show \
   --resource-group "$AZURE_RESOURCE_GROUP" \
   --profile-name "$FRONT_DOOR_PROFILE_NAME" \

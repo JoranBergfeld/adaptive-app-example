@@ -57,9 +57,19 @@ if tool == "az":
         print("managed-identity-client")
     elif args[:3] == ["deployment", "group", "create"]:
         value = args[args.index("--parameters") + 1]
-        document = json.loads(Path(value[1:]).read_text(encoding="utf-8"))
-        with open(os.environ["SHOP_TEST_PARAMETERS"], "w") as file:
-            json.dump(document, file)
+        if value.startswith("@"):
+            document = json.loads(Path(value[1:]).read_text(encoding="utf-8"))
+            with open(os.environ["SHOP_TEST_PARAMETERS"], "w") as file:
+                json.dump(document, file)
+        else:
+            assert value == "frontDoorProfileName=test-frontdoor"
+            log_lines = Path(os.environ["SHOP_TEST_LOG"]).read_text().splitlines()
+            entries = [json.loads(line) for line in log_lines]
+            updates = [
+                entry["args"] for entry in entries
+                if entry["args"][:3] == ["afd", "origin", "update"]
+            ]
+            assert updates[-1][updates[-1].index("--enabled-state") + 1] == "Enabled"
 elif tool == "kubectl":
     if "config" in args and "view" in args:
         print(json.dumps({
@@ -322,12 +332,14 @@ public static class TestToken {
         self.assertFalse(list((self.root / ".secrets").glob("*-admin-*")))
 
     @unittest.skipIf(os.name == "nt", "Bash parity is checked on Linux")
-    def test_bash_credentials_and_tls_route_match_powershell_cli_behavior(self):
+    def test_bash_credentials_tls_route_and_traffic_switch_match_powershell_cli_behavior(self):
         self.save_credentials()
         for script, arguments in (
             ("20-get-cluster-credentials", []),
             ("20-get-cluster-credentials", []),
             ("50-deploy-target", ["aro"]),
+            ("90-switch-traffic", ["aro"]),
+            ("90-switch-traffic", ["onprem"]),
         ):
             result = subprocess.run(
                 ["bash", f"scripts/{script}.sh", *arguments],
@@ -336,6 +348,11 @@ public static class TestToken {
             self.assert_success(result)
         routes = [entry for entry in self.entries() if entry["tool"] == "oc"]
         self.assertTrue(any("edge" in entry["args"] for entry in routes))
+        route_deployments = [
+            entry for entry in self.entries()
+            if entry["args"][:3] == ["deployment", "group", "create"]
+        ]
+        self.assertEqual(len(route_deployments), 2)
         value = json.loads((self.root / ".secrets/aro-demo.kubeconfig").read_text())
         self.assertEqual(value["current-context"], "aro-demo")
 
@@ -417,6 +434,32 @@ public static class TestToken {
         self.assertEqual(updates[0][updates[0].index("--origin-name") + 1], "aro")
         self.assertEqual(updates[0][updates[0].index("--enabled-state") + 1], "Disabled")
         self.assertEqual(updates[1][updates[1].index("--enabled-state") + 1], "Enabled")
+
+    def test_switch_deploys_route_after_enabling_origin_on_each_run(self):
+        for target in ("aro", "onprem"):
+            result = self.run_ps(
+                "function Invoke-WebRequest { @{ StatusCode = 200 } }; "
+                f"& ./scripts/90-switch-traffic.ps1 -Target {target}"
+            )
+            self.assert_success(result)
+        entries = self.entries()
+        deployments = [
+            (index, entry["args"]) for index, entry in enumerate(entries)
+            if entry["args"][:3] == ["deployment", "group", "create"]
+        ]
+        self.assertEqual(len(deployments), 2)
+        for index, args in deployments:
+            self.assertEqual(
+                Path(args[args.index("--template-file") + 1]).name, "front-door-route.bicep",
+            )
+            self.assertEqual(
+                args[args.index("--parameters") + 1], "frontDoorProfileName=test-frontdoor",
+            )
+            self.assertEqual(entries[index - 1]["args"][:3], ["afd", "origin", "update"])
+            self.assertEqual(
+                entries[index - 1]["args"][entries[index - 1]["args"].index("--enabled-state") + 1],
+                "Enabled",
+            )
 
     def test_destroy_rejects_mismatched_confirmation(self):
         result = self.run_ps(

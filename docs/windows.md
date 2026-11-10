@@ -62,6 +62,9 @@ assignments. Credentials are stored in `.secrets/service-principal.json` and
 reused on subsequent runs without rotating the password. Script `10` grants
 the resource-group Contributor and vault Secrets Officer roles, then deploys
 both ARO clusters and supporting services. This takes time and incurs charges.
+Cluster DNS labels are generated deterministically from the resource group
+and cluster names; no domain setting is required in `.env`. Front Door's route
+is deferred until script `90` enables an application origin.
 
 Switch Azure CLI to the demo principal, then install the platforms and deploy:
 
@@ -122,3 +125,18 @@ remove that dedicated identity separately when retiring the demo.
 Native-command failures stop scripts rather than appearing as successful
 deployments. The full Azure flow still requires a rehearsal in your
 subscription; see [known limitations](limitations.md).
+
+If script `10` reports an empty `properties.clusterProfile.domain` or asks for
+an enabled Front Door origin, use the updated templates and scripts together
+and rerun `.\scripts\10-apply-infrastructure.ps1` from that checkout. These are
+template errors, not a PowerShell execution-policy or service-principal secret
+problem. The deployment uses incremental mode, so do not delete the resource
+group or regenerate credentials just to retry. If Azure still rejects a
+resource left in a failed state, inspect the deployment operations first:
+
+```powershell
+az deployment operation group list --resource-group <your-resource-group> `
+  --name adaptive-shop-infrastructure `
+  --query "[?properties.provisioningState=='Failed'].{resource:properties.targetResource.resourceName,error:properties.statusMessage}" `
+  --output json
+```

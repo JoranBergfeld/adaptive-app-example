@@ -31,6 +31,10 @@ The steps below use Bash; each operation also has a `.ps1` equivalent.
    permission/propagation issue. Script `10` registers the required Azure
    resource providers and chooses the newest ARO version exposed by the
    regional Azure CLI command unless `OPENSHIFT_VERSION` is set.
+   Each cluster gets a stable DNS label derived from its resource group and
+   cluster name. Front Door provisioning creates the profile, endpoint, and
+   origin group only; Azure requires an enabled origin before a route can be
+   created.
 5. Run `scripts/20-get-cluster-credentials.sh`. It saves mode-600 kubeconfigs
    and creates the explicit contexts `aro-demo` and `onprem-demo` under
    `.secrets/`.
@@ -58,7 +62,8 @@ The steps below use Bash; each operation also has a `.ps1` equivalent.
    CloudNativePG on the stand-in target.
 7. Deploy the first target with `scripts/50-deploy-target.sh aro`, warm the
    second with `scripts/55-warm-standby.sh`, then set the active origin with
-   `scripts/90-switch-traffic.sh aro`.
+   `scripts/90-switch-traffic.sh aro`. Script `90` enables the selected origin
+   before creating or updating the Front Door route.
 
 ## Switching demonstration
 

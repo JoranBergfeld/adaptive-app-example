@@ -17,6 +17,11 @@ foreach ($origin in @($otherTarget, $Target)) {
     Invoke-Tool az (@('afd', 'origin', 'update') + $base + @('--origin-name', $origin,
         '--enabled-state', $state, '--only-show-errors', '--output', 'none')) | Out-Null
 }
+Invoke-Tool az @('deployment', 'group', 'create', '--subscription', $config.AZURE_SUBSCRIPTION_ID,
+    '--resource-group', $config.AZURE_RESOURCE_GROUP, '--name', 'adaptive-shop-front-door-route',
+    '--template-file', (Join-Path $script:RepoRoot 'infra/azure/front-door-route.bicep'),
+    '--parameters', "frontDoorProfileName=$($config.FRONT_DOOR_PROFILE_NAME)",
+    '--only-show-errors', '--output', 'none') | Out-Null
 $frontDoorHost = Invoke-Tool az @('afd', 'endpoint', 'show', '--resource-group', $config.AZURE_RESOURCE_GROUP,
     '--profile-name', $config.FRONT_DOOR_PROFILE_NAME, '--endpoint-name', 'shop', '--query',
     'hostName', '--output', 'tsv', '--only-show-errors')

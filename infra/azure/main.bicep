@@ -164,6 +164,7 @@ resource aroCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-prev
       visibility: 'Public'
     }
     clusterProfile: {
+      domain: uniqueString(resourceGroup().id, aroClusterName)
       fipsValidatedModules: 'Disabled'
       pullSecret: redHatPullSecret
       version: openShiftVersion
@@ -212,6 +213,7 @@ resource onpremCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-p
       visibility: 'Public'
     }
     clusterProfile: {
+      domain: uniqueString(resourceGroup().id, onpremClusterName)
       fipsValidatedModules: 'Disabled'
       pullSecret: redHatPullSecret
       version: openShiftVersion
@@ -360,27 +362,6 @@ resource frontDoorOriginGroup 'Microsoft.Cdn/profiles/originGroups@2025-04-15' =
       additionalLatencyInMilliseconds: 0
     }
     sessionAffinityState: 'Disabled'
-  }
-}
-
-resource frontDoorRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2025-04-15' = {
-  parent: frontDoorEndpoint
-  name: 'shop'
-  properties: {
-    originGroup: {
-      id: frontDoorOriginGroup.id
-    }
-    patternsToMatch: [
-      '/*'
-    ]
-    supportedProtocols: [
-      'Https'
-      'Http'
-    ]
-    forwardingProtocol: 'HttpsOnly'
-    httpsRedirect: 'Enabled'
-    enabledState: 'Enabled'
-    linkToDefaultDomain: 'Enabled'
   }
 }
 
