@@ -17,6 +17,7 @@ require_command az
 require_command jq
 require_command sort
 require_command tail
+require_command head
 
 select_subscription
 check_capacity
@@ -51,6 +52,13 @@ if [[ -z "$OPENSHIFT_VERSION" ]]; then
   printf 'No ARO version was returned for %s.\n' "$AZURE_LOCATION" >&2
   exit 1
 fi
+if [[ "$ARO_MASTER_VM_SIZE" == *_v6 || "$ARO_WORKER_VM_SIZE" == *_v6 ]]; then
+  oldest="$(printf '%s\n' '4.19.0' "$OPENSHIFT_VERSION" | sort -V | head -n 1)"
+  if [[ "$oldest" != '4.19.0' ]]; then
+    printf 'Dsv6 node sizes require OpenShift 4.19 or later. Update OPENSHIFT_VERSION or leave it blank.\n' >&2
+    exit 1
+  fi
+fi
 
 pull_secret=''
 if [[ -n "$RED_HAT_PULL_SECRET_FILE" ]]; then
@@ -71,6 +79,8 @@ jq -n \
   --arg keyVaultName "$KEY_VAULT_NAME" \
   --arg frontDoorProfileName "$FRONT_DOOR_PROFILE_NAME" \
   --arg frontDoorEndpointName "$FRONT_DOOR_ENDPOINT_NAME" \
+  --arg aroMasterVmSize "$ARO_MASTER_VM_SIZE" \
+  --arg aroWorkerVmSize "$ARO_WORKER_VM_SIZE" \
   --arg aroServicePrincipalClientId "$ARO_SERVICE_PRINCIPAL_CLIENT_ID" \
   --arg aroServicePrincipalClientSecret "$ARO_SERVICE_PRINCIPAL_CLIENT_SECRET" \
   --arg aroServicePrincipalObjectId "$ARO_SERVICE_PRINCIPAL_OBJECT_ID" \
@@ -86,6 +96,8 @@ jq -n \
       keyVaultName: {value: $keyVaultName},
       frontDoorProfileName: {value: $frontDoorProfileName},
       frontDoorEndpointName: {value: $frontDoorEndpointName},
+      aroMasterVmSize: {value: $aroMasterVmSize},
+      aroWorkerVmSize: {value: $aroWorkerVmSize},
       aroServicePrincipalClientId: {value: $aroServicePrincipalClientId},
       aroServicePrincipalClientSecret: {value: $aroServicePrincipalClientSecret},
       aroServicePrincipalObjectId: {value: $aroServicePrincipalObjectId},

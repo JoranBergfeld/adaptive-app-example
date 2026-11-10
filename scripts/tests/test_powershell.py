@@ -42,8 +42,9 @@ if tool == "az":
         print(json.dumps({"resources": [
             {"type": "Microsoft.RedHatOpenShift/openShiftClusters",
              "name": "[parameters('%s')]" % parameter,
-             "properties": {"masterProfile": {"vmSize": "Standard_D8s_v5"},
-                            "workerProfiles": [{"vmSize": "Standard_D4s_v5", "count": 3}]}}
+             "properties": {"masterProfile": {"vmSize": "[parameters('aroMasterVmSize')]"},
+                            "workerProfiles": [{"vmSize": "[parameters('aroWorkerVmSize')]",
+                                                "count": 3}]}}
             for parameter in ("aroClusterName", "onpremClusterName")
         ]}))
     elif args[:2] == ["vm", "list-skus"]:
@@ -370,6 +371,37 @@ public static class TestToken {
             or entry["args"][:2] == ["deployment", "group"]
             for entry in self.entries()
         ))
+
+    def test_custom_vm_sizes_are_checked_and_passed_to_both_clusters(self):
+        self.save_credentials()
+        with self.env_file.open("a") as file:
+            file.write("ARO_MASTER_VM_SIZE=Standard_D8s_v6\n"
+                       "ARO_WORKER_VM_SIZE=Standard_D4s_v6\n")
+        self.env["SHOP_TEST_SKUS"] = json.dumps([
+            {"name": name, "family": "StandardDsv6Family", "restrictions": [],
+             "capabilities": [{"name": "vCPUs", "value": str(cores)}]}
+            for name, cores in (("Standard_D8s_v6", 8), ("Standard_D4s_v6", 4))
+        ])
+        self.env["SHOP_TEST_USAGE"] = json.dumps([
+            {"name": {"value": name}, "currentValue": 0, "limit": 100}
+            for name in ("cores", "StandardDsv6Family")
+        ])
+        result = self.run_ps("& ./scripts/10-apply-infrastructure.ps1")
+        self.assert_success(result)
+        parameters = json.loads((self.root / "parameters.json").read_text())["parameters"]
+        self.assertEqual(parameters["aroMasterVmSize"]["value"], "Standard_D8s_v6")
+        self.assertEqual(parameters["aroWorkerVmSize"]["value"], "Standard_D4s_v6")
+        queries = [
+            entry["args"] for entry in self.entries()
+            if entry["args"][:2] == ["vm", "list-skus"]
+        ]
+        self.assertEqual(len(queries), 1)
+        self.assertIn("Standard_D8s_v6", queries[0][queries[0].index("--query") + 1])
+        with self.env_file.open("a") as file:
+            file.write("OPENSHIFT_VERSION=4.18.34\n")
+        result = self.run_ps("& ./scripts/10-apply-infrastructure.ps1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("4.19", result.stderr)
 
     def test_capacity_checks_both_clusters_against_regional_and_family_quota(self):
         for quota in ("cores", "standardDSv5Family"):

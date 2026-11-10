@@ -21,6 +21,21 @@ class InfrastructureTests(unittest.TestCase):
             raise AssertionError(result.stderr)
         return json.loads(result.stdout)
 
+    def test_both_clusters_use_configurable_vm_sizes_with_compatible_defaults(self):
+        template = self.compile_template("main.bicep")
+        self.assertEqual(template["parameters"]["aroMasterVmSize"]["defaultValue"], "Standard_D8s_v5")
+        self.assertEqual(template["parameters"]["aroWorkerVmSize"]["defaultValue"], "Standard_D4s_v5")
+        clusters = [
+            resource for resource in template["resources"]
+            if resource["type"] == "Microsoft.RedHatOpenShift/openShiftClusters"
+        ]
+        self.assertEqual(len(clusters), 2)
+        for cluster in clusters:
+            self.assertEqual(cluster["properties"]["masterProfile"]["vmSize"],
+                             "[parameters('aroMasterVmSize')]")
+            for worker in cluster["properties"]["workerProfiles"]:
+                self.assertEqual(worker["vmSize"], "[parameters('aroWorkerVmSize')]")
+
     def test_clusters_have_stable_distinct_domains(self):
         template = self.compile_template("main.bicep")
         clusters = [

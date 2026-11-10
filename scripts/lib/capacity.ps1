@@ -9,6 +9,10 @@ function Test-ShopCapacity {
         aroClusterName = $Config.ARO_CLUSTER_NAME
         onpremClusterName = $Config.ONPREM_CLUSTER_NAME
     }
+    $vmSizes = @{
+        "[parameters('aroMasterVmSize')]" = $Config.ARO_MASTER_VM_SIZE
+        "[parameters('aroWorkerVmSize')]" = $Config.ARO_WORKER_VM_SIZE
+    }
     $plans = @($template.resources |
         Where-Object type -eq 'Microsoft.RedHatOpenShift/openShiftClusters' |
         ForEach-Object {
@@ -19,10 +23,17 @@ function Test-ShopCapacity {
             @{
                 Name = $clusterNames[$Matches[1]]
                 Nodes = @(@{ vmSize = $_.properties.masterProfile.vmSize; count = 3 }) +
-                    @($_.properties.workerProfiles)
+                    @($_.properties.workerProfiles | ForEach-Object {
+                        @{ vmSize = $_.vmSize; count = $_.count }
+                    })
             }
         })
     if ($plans.Count -ne 2) { throw 'Capacity preflight expects two ARO clusters in main.bicep.' }
+    foreach ($plan in $plans) {
+        foreach ($node in $plan.Nodes) {
+            if ($vmSizes.ContainsKey($node.vmSize)) { $node.vmSize = $vmSizes[$node.vmSize] }
+        }
+    }
 
     $exists = Invoke-Tool az @('group', 'exists', '--subscription', $Config.AZURE_SUBSCRIPTION_ID,
         '--name', $Config.AZURE_RESOURCE_GROUP, '--output', 'tsv', '--only-show-errors')

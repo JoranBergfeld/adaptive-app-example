@@ -22,6 +22,10 @@ if (-not $config.OPENSHIFT_VERSION) {
     $config.OPENSHIFT_VERSION = $versions | Sort-Object { [version]$_ } | Select-Object -Last 1
 }
 Require-Values $config @('OPENSHIFT_VERSION')
+if (($config.ARO_MASTER_VM_SIZE -match '_v6$' -or $config.ARO_WORKER_VM_SIZE -match '_v6$') -and
+    [version]$config.OPENSHIFT_VERSION -lt [version]'4.19.0') {
+    throw 'Dsv6 node sizes require OpenShift 4.19 or later. Update OPENSHIFT_VERSION or leave it blank.'
+}
 $pullSecret = if ($config.RED_HAT_PULL_SECRET_FILE) {
     Get-Content -LiteralPath $config.RED_HAT_PULL_SECRET_FILE -Raw
 } else { '' }
@@ -29,6 +33,7 @@ $parameters = @{
     location = $config.AZURE_LOCATION; openShiftVersion = $config.OPENSHIFT_VERSION
     keyVaultName = $config.KEY_VAULT_NAME; frontDoorProfileName = $config.FRONT_DOOR_PROFILE_NAME
     frontDoorEndpointName = $config.FRONT_DOOR_ENDPOINT_NAME
+    aroMasterVmSize = $config.ARO_MASTER_VM_SIZE; aroWorkerVmSize = $config.ARO_WORKER_VM_SIZE
     aroServicePrincipalClientId = $config.ARO_SERVICE_PRINCIPAL_CLIENT_ID
     aroServicePrincipalClientSecret = $config.ARO_SERVICE_PRINCIPAL_CLIENT_SECRET
     aroServicePrincipalObjectId = $config.ARO_SERVICE_PRINCIPAL_OBJECT_ID

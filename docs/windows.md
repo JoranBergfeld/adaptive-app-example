@@ -75,7 +75,7 @@ Azure managed-disk encryption at rest remains enabled.
 
 Run `.\scripts\09-check-capacity.ps1` to check the configured region without
 creating or deleting Azure resources. It reads the VM sizes and worker counts
-from the compiled template, checks current subscription SKU location restrictions,
+from the compiled template and configured size overrides, checks current subscription SKU location restrictions,
 and compares the additional nodes against regional and VM-family CPU quota.
 With the default topology, two new clusters need 72 vCPUs. Existing successful
 clusters with matching topology are not counted again; failed clusters are
@@ -90,6 +90,17 @@ closed if a SKU or quota is missing or a query fails. They do not reserve capaci
 guarantee ARO allocation, or automatically change region/VM sizes. Restrictions
 can change between a check and deployment; CPU quota checks also do not cover
 every service quota or temporary upgrade capacity.
+
+Set `ARO_MASTER_VM_SIZE` and `ARO_WORKER_VM_SIZE` in `.env` to try another
+[ARO-supported size](https://learn.microsoft.com/azure/openshift/support-policies-v4#supported-virtual-machine-sizes).
+For example, `Standard_D8s_v6` masters and `Standard_D4s_v6` workers keep the
+same CPU/memory counts as the default v5 pair. Dsv6 requires OpenShift 4.19 or
+later; leave `OPENSHIFT_VERSION` blank to select the newest regional version,
+or explicitly choose a supported version at least 4.19. Script `10` rejects
+older versions for v6 sizes. Both clusters use these settings, and capacity
+checks use the selected sizes and VM families. Defaults remain v5; do not
+change the master size of an existing successful cluster as a retry mechanism.
+SKU listings do not guarantee that ARO itself will accept or allocate the size.
 
 If Azure reports that `Microsoft.Cdn/profiles/afdEndpoints/shop` is unavailable,
 set `FRONT_DOOR_ENDPOINT_NAME` in `.env` to an unused name, for example

@@ -3,13 +3,17 @@
 check_capacity() {
   local template plans exists existing sizes query skus requirements usage
   template="$(az bicep build --file "$REPO_ROOT/infra/azure/main.bicep" --stdout)" || return 1
-  plans="$(jq -ce --arg aro "$ARO_CLUSTER_NAME" --arg onprem "$ONPREM_CLUSTER_NAME" '
+  plans="$(jq -ce --arg aro "$ARO_CLUSTER_NAME" --arg onprem "$ONPREM_CLUSTER_NAME" \
+    --arg master "$ARO_MASTER_VM_SIZE" --arg worker "$ARO_WORKER_VM_SIZE" '
+    def vm_size:
+      if . == "[parameters('\''aroMasterVmSize'\'')]" then $master
+      elif . == "[parameters('\''aroWorkerVmSize'\'')]" then $worker else . end;
     [.resources[] | select(.type == "Microsoft.RedHatOpenShift/openShiftClusters") |
       {name: (if .name == "[parameters('\''aroClusterName'\'')]" then $aro
               elif .name == "[parameters('\''onpremClusterName'\'')]" then $onprem
               else error("Capacity preflight cannot resolve the cluster name in main.bicep.") end),
-       nodes: ([{vmSize: .properties.masterProfile.vmSize, count: 3}] +
-               [.properties.workerProfiles[] | {vmSize, count}])}] |
+       nodes: ([{vmSize: (.properties.masterProfile.vmSize | vm_size), count: 3}] +
+               [.properties.workerProfiles[] | {vmSize: (.vmSize | vm_size), count}])}] |
     if length == 2 then . else error("Capacity preflight expects two ARO clusters.") end
   ' <<<"$template")" || return 1
   exists="$(az group exists --subscription "$AZURE_SUBSCRIPTION_ID" \

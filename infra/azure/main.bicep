@@ -35,6 +35,12 @@ param aroClusterName string = 'adaptive-aro'
 @description('Name of the on-premises-style ARO stand-in cluster.')
 param onpremClusterName string = 'adaptive-onprem'
 
+@description('Master VM size for both clusters. Dsv6 requires OpenShift 4.19 or later.')
+param aroMasterVmSize string = 'Standard_D8s_v5'
+
+@description('Worker VM size for both clusters. Dsv6 requires OpenShift 4.19 or later.')
+param aroWorkerVmSize string = 'Standard_D4s_v5'
+
 var contributorRoleId = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   'b24988ac-6180-42a0-ab88-20f7382dd24c'
@@ -182,7 +188,7 @@ resource aroCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-prev
     ]
     masterProfile: {
       encryptionAtHost: 'Disabled'
-      vmSize: 'Standard_D8s_v5'
+      vmSize: aroMasterVmSize
       subnetId: aroMasterSubnet.id
     }
     networkProfile: {
@@ -199,7 +205,7 @@ resource aroCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-prev
         name: 'worker'
         count: 3
         encryptionAtHost: 'Disabled'
-        vmSize: 'Standard_D4s_v5'
+        vmSize: aroWorkerVmSize
         diskSizeGB: 128
         subnetId: aroWorkerSubnet.id
       }
@@ -234,7 +240,7 @@ resource onpremCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-p
     ]
     masterProfile: {
       encryptionAtHost: 'Disabled'
-      vmSize: 'Standard_D8s_v5'
+      vmSize: aroMasterVmSize
       subnetId: onpremMasterSubnet.id
     }
     networkProfile: {
@@ -251,7 +257,7 @@ resource onpremCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-p
         name: 'worker'
         count: 3
         encryptionAtHost: 'Disabled'
-        vmSize: 'Standard_D4s_v5'
+        vmSize: aroWorkerVmSize
         diskSizeGB: 128
         subnetId: onpremWorkerSubnet.id
       }

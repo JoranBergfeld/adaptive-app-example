@@ -52,6 +52,14 @@ The steps below use Bash; each operation also has a `.ps1` equivalent.
    These checks do not reserve capacity, guarantee allocation, cover every
    service quota/upgrade requirement, or automatically choose another region
    or VM size. Recheck on every attempt because restrictions can change.
+   To try another ARO-supported pair, set `ARO_MASTER_VM_SIZE` and
+   `ARO_WORKER_VM_SIZE` in `.env`; both clusters and the preflight use these
+   overrides. Defaults remain `Standard_D8s_v5` / `Standard_D4s_v5`.
+   `Standard_D8s_v6` / `Standard_D4s_v6` retain the same CPU/memory counts but
+   require OpenShift 4.19 or later. Leave `OPENSHIFT_VERSION` blank for the
+   newest regional version or set a supported version at least 4.19.
+   Script `10` rejects older versions with v6 sizes. Do not change master
+   sizes on an existing successful cluster as a provisioning retry.
    Front Door provisioning creates the profile, endpoint, and
    origin group only; Azure requires an enabled origin before a route can be
    created. If endpoint `shop` conflicts, choose an unused
