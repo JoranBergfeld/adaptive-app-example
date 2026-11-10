@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#151515">
+    <title>Shop | Build once, adapt everywhere</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/config.js"></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="brand">SUMMIT<span>SHOP</span></div>
+      <div id="whereami" class="whereami" aria-live="polite">
+        Connecting to the running environment…
+      </div>
+    </header>
+
+    <main>
+      <section class="intro">
+        <p class="eyebrow">ONE APP. DIFFERENT BACKING SERVICES.</p>
+        <h1>Ready for your next adventure?</h1>
+        <p class="intro-copy">A small storefront that can move with its platform.</p>
+      </section>
+
+      <div id="error" class="error" role="alert" hidden></div>
+
+      <div class="shop-layout">
+        <section aria-labelledby="products-heading">
+          <div class="section-heading">
+            <p class="eyebrow">THE COLLECTION</p>
+            <h2 id="products-heading">Featured gear</h2>
+          </div>
+          <div id="products" class="products" aria-live="polite"></div>
+        </section>
+
+        <aside class="cart-panel" aria-labelledby="cart-heading">
+          <div class="section-heading">
+            <p class="eyebrow">YOUR ORDER</p>
+            <h2 id="cart-heading">Cart <span id="cart-count">0</span></h2>
+          </div>
+          <div id="cart-items" class="cart-items"></div>
+          <div class="cart-total">
+            <span>Total</span>
+            <strong id="cart-total">$0.00</strong>
+          </div>
+          <button id="clear-cart" class="clear-cart" type="button">Clear cart</button>
+          <p class="cart-note">Demo cart state is stored by the active environment.</p>
+        </aside>
+      </div>
+    </main>
+    <footer>BUILT ONCE. ADAPTED EVERYWHERE.</footer>
+  </body>
+</html>

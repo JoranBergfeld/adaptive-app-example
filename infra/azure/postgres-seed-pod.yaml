@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: shop-db-seed
+  namespace: shop
+spec:
+  restartPolicy: Never
+  containers:
+    - name: psql
+      image: postgres:17.6-alpine
+      command: ["sleep", "3600"]
+      env:
+        - name: PGHOST
+          value: __DATABASE_HOST__
+        - name: PGPORT
+          value: "__DATABASE_PORT__"
+        - name: PGDATABASE
+          value: shop
+        - name: PGUSER
+          value: shopadmin
+        - name: PGSSLMODE
+          value: require
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: shop-db-seed-credentials
+              key: password
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault

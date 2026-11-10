@@ -1,0 +1,23 @@
+FROM registry.access.redhat.com/ubi9/python-312:1-1793738546 AS build
+
+USER 0
+WORKDIR /opt/app-root/src
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --target=/install -r requirements.txt
+
+COPY shop_api ./shop_api
+RUN chown -R 0:0 /opt/app-root/src && chmod -R g=u /opt/app-root/src
+
+FROM registry.access.redhat.com/ubi9/python-312:1-1793738546
+
+ENV PATH="/install/bin:${PATH}" \
+    PYTHONPATH="/install" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+WORKDIR /opt/app-root/src
+COPY --from=build --chown=0:0 /install /install
+COPY --from=build --chown=0:0 /opt/app-root/src/shop_api ./shop_api
+
+EXPOSE 8080
+CMD ["uvicorn", "shop_api.main:app", "--host", "0.0.0.0", "--port", "8080"]

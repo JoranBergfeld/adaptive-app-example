@@ -1,0 +1,17 @@
+FROM registry.access.redhat.com/ubi9/python-312:1-1793738546 AS assets
+
+USER 0
+WORKDIR /opt/app-root/src
+
+COPY index.html styles.css app.js server.py entrypoint.sh ./
+RUN chown -R 0:0 /opt/app-root/src \
+    && chmod -R g=u /opt/app-root/src \
+    && chmod 775 /opt/app-root/src/entrypoint.sh
+
+FROM registry.access.redhat.com/ubi9/python-312:1-1793738546
+
+WORKDIR /opt/app-root/src
+COPY --from=assets --chown=0:0 /opt/app-root/src/ ./
+
+EXPOSE 8080
+ENTRYPOINT ["./entrypoint.sh"]
