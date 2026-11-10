@@ -125,6 +125,27 @@ class InfrastructureTests(unittest.TestCase):
         ):
             self.assertEqual(properties[name], value)
 
+    def test_endpoint_name_is_configurable_in_both_templates(self):
+        for name in ("main.bicep", "front-door-route.bicep"):
+            with self.subTest(template=name):
+                template = self.compile_template(name)
+                self.assertEqual(
+                    template["parameters"]["frontDoorEndpointName"]["defaultValue"], "shop",
+                )
+                endpoints = [
+                    resource for resource in template["resources"]
+                    if resource["type"] == "Microsoft.Cdn/profiles/afdEndpoints"
+                ]
+                if name == "main.bicep":
+                    self.assertEqual(len(endpoints), 1)
+                    self.assertIn("parameters('frontDoorEndpointName')", endpoints[0]["name"])
+                else:
+                    routes = [
+                        resource for resource in template["resources"]
+                        if resource["type"] == "Microsoft.Cdn/profiles/afdEndpoints/routes"
+                    ]
+                    self.assertIn("parameters('frontDoorEndpointName')", routes[0]["name"])
+
 
 if __name__ == "__main__":
     unittest.main()

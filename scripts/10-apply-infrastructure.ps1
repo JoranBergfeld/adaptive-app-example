@@ -1,10 +1,12 @@
 #requires -Version 7.3
 . "$PSScriptRoot/lib/common.ps1"
+. "$PSScriptRoot/lib/capacity.ps1"
 $config = Get-ShopConfig
 Require-Values $config @('AZURE_RESOURCE_GROUP', 'AZURE_LOCATION', 'KEY_VAULT_NAME',
     'FRONT_DOOR_PROFILE_NAME', 'ARO_SERVICE_PRINCIPAL_CLIENT_ID',
     'ARO_SERVICE_PRINCIPAL_CLIENT_SECRET', 'ARO_SERVICE_PRINCIPAL_OBJECT_ID')
 Select-ShopSubscription $config
+Test-ShopCapacity $config
 foreach ($provider in @('Microsoft.Authorization', 'Microsoft.Cache', 'Microsoft.Cdn',
     'Microsoft.Compute', 'Microsoft.DBforPostgreSQL', 'Microsoft.KeyVault',
     'Microsoft.ManagedIdentity', 'Microsoft.Network', 'Microsoft.OperationalInsights',
@@ -26,6 +28,7 @@ $pullSecret = if ($config.RED_HAT_PULL_SECRET_FILE) {
 $parameters = @{
     location = $config.AZURE_LOCATION; openShiftVersion = $config.OPENSHIFT_VERSION
     keyVaultName = $config.KEY_VAULT_NAME; frontDoorProfileName = $config.FRONT_DOOR_PROFILE_NAME
+    frontDoorEndpointName = $config.FRONT_DOOR_ENDPOINT_NAME
     aroServicePrincipalClientId = $config.ARO_SERVICE_PRINCIPAL_CLIENT_ID
     aroServicePrincipalClientSecret = $config.ARO_SERVICE_PRINCIPAL_CLIENT_SECRET
     aroServicePrincipalObjectId = $config.ARO_SERVICE_PRINCIPAL_OBJECT_ID
@@ -35,6 +38,11 @@ $parameters = @{
 $parametersFile = Join-Path $script:SecretsDir "infra-parameters-$([guid]::NewGuid()).json"
 try {
     Write-ParametersFile $parametersFile $parameters
+    Invoke-Tool az @('deployment', 'group', 'validate', '--subscription', $config.AZURE_SUBSCRIPTION_ID,
+        '--resource-group', $config.AZURE_RESOURCE_GROUP, '--name', 'adaptive-shop-infrastructure',
+        '--template-file', (Join-Path $script:RepoRoot 'infra/azure/main.bicep'),
+        '--parameters', "@$parametersFile", '--validation-level', 'Provider',
+        '--only-show-errors', '--output', 'none') | Out-Null
     Invoke-Tool az @('deployment', 'group', 'create', '--subscription', $config.AZURE_SUBSCRIPTION_ID,
         '--resource-group', $config.AZURE_RESOURCE_GROUP, '--name', 'adaptive-shop-infrastructure',
         '--template-file', (Join-Path $script:RepoRoot 'infra/azure/main.bicep'),

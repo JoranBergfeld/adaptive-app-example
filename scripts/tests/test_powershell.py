@@ -38,6 +38,29 @@ if tool == "az":
         print("test-object")
     elif args[:2] == ["aro", "get-versions"]:
         print('["4.9.9", "4.20.1", "4.19.9"]')
+    elif args[:2] == ["bicep", "build"]:
+        print(json.dumps({"resources": [
+            {"type": "Microsoft.RedHatOpenShift/openShiftClusters",
+             "name": "[parameters('%s')]" % parameter,
+             "properties": {"masterProfile": {"vmSize": "Standard_D8s_v5"},
+                            "workerProfiles": [{"vmSize": "Standard_D4s_v5", "count": 3}]}}
+            for parameter in ("aroClusterName", "onpremClusterName")
+        ]}))
+    elif args[:2] == ["vm", "list-skus"]:
+        print(os.environ.get("SHOP_TEST_SKUS", json.dumps([
+            {"name": name, "family": "standardDSv5Family", "restrictions": [],
+             "capabilities": [{"name": "vCPUs", "value": str(cores)}]}
+            for name, cores in (("Standard_D8s_v5", 8), ("Standard_D4s_v5", 4))
+        ])))
+    elif args[:2] == ["vm", "list-usage"]:
+        print(os.environ.get("SHOP_TEST_USAGE", json.dumps([
+            {"name": {"value": name}, "currentValue": 0, "limit": 100}
+            for name in ("cores", "standardDSv5Family")
+        ])))
+    elif args[:2] == ["group", "exists"]:
+        print("true")
+    elif args[:2] == ["aro", "list"]:
+        print(os.environ.get("SHOP_TEST_CLUSTERS", "[]"))
     elif args[:2] == ["aro", "get-admin-kubeconfig"]:
         if "--overwrite-existing" in args:
             raise SystemExit("Unsupported ARO argument: --overwrite-existing")
@@ -55,6 +78,10 @@ if tool == "az":
         print("redis-secret")
     elif args[:3] == ["deployment", "group", "show"]:
         print("managed-identity-client")
+    elif args[:3] == ["deployment", "group", "validate"]:
+        if os.environ.get("SHOP_TEST_VALIDATION_FAIL"):
+            print("Mock provider validation failed", file=sys.stderr)
+            sys.exit(1)
     elif args[:3] == ["deployment", "group", "create"]:
         value = args[args.index("--parameters") + 1]
         if value.startswith("@"):
@@ -103,8 +130,9 @@ class PowerShellTests(unittest.TestCase):
             if path.suffix not in (".ps1", ".sh"):
                 continue
             shutil.copy2(path, scripts / path.name)
-        for name in ("common.ps1", "common.sh"):
-            shutil.copy2(ROOT / "scripts/lib" / name, scripts / "lib" / name)
+        for path in (ROOT / "scripts/lib").glob("*"):
+            if path.suffix in (".ps1", ".sh"):
+                shutil.copy2(path, scripts / "lib" / path.name)
         for directory in ("infra", "dapr", "radius"):
             shutil.copytree(ROOT / directory, self.root / directory)
         (self.root / "app/api").mkdir(parents=True)
@@ -320,6 +348,163 @@ public static class TestToken {
         self.assertEqual(parameters["openShiftVersion"]["value"], "4.20.1")
         self.assertEqual(parameters["aroServicePrincipalClientSecret"]["value"], "test-secret")
         self.assertFalse(list(self.credentials.parent.glob("infra-parameters-*")))
+        commands = [entry["args"][:3] for entry in self.entries()]
+        self.assertLess(commands.index(["deployment", "group", "validate"]),
+                        commands.index(["deployment", "group", "create"]))
+
+    def test_capacity_restrictions_stop_before_any_cloud_creation(self):
+        self.save_credentials()
+        self.env["SHOP_TEST_SKUS"] = json.dumps([
+            {"name": "Standard_D8s_v5", "restrictions": [
+                {"type": "Location", "reasonCode": "NotAvailableForSubscription",
+                 "restrictionInfo": {"locations": ["eastus"]}}
+            ]},
+            {"name": "Standard_D4s_v5", "restrictions": []},
+        ])
+        result = self.run_ps("& ./scripts/10-apply-infrastructure.ps1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Standard_D8s_v5", result.stderr)
+        self.assertIn("NotAvailableForSubscription", result.stderr)
+        self.assertFalse(any(
+            entry["args"][:2] in (["provider", "register"], ["group", "create"])
+            or entry["args"][:2] == ["deployment", "group"]
+            for entry in self.entries()
+        ))
+
+    def test_capacity_checks_both_clusters_against_regional_and_family_quota(self):
+        for quota in ("cores", "standardDSv5Family"):
+            with self.subTest(quota=quota):
+                self.env["SHOP_TEST_USAGE"] = json.dumps([
+                    {"name": {"value": name}, "currentValue": 29 if name == quota else 0,
+                     "limit": 100}
+                    for name in ("cores", "standardDSv5Family")
+                ])
+                result = self.run_ps("& ./scripts/09-check-capacity.ps1")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(quota, result.stderr)
+                self.assertIn("72", result.stderr)
+                self.assertIn("71", result.stderr)
+
+    def test_capacity_missing_sku_or_quota_is_not_treated_as_available(self):
+        for key in ("SHOP_TEST_SKUS", "SHOP_TEST_USAGE"):
+            with self.subTest(missing=key):
+                self.env[key] = "[]"
+                result = self.run_ps("& ./scripts/09-check-capacity.ps1")
+                self.assertNotEqual(result.returncode, 0)
+                del self.env[key]
+
+    def test_capacity_missing_restriction_metadata_is_not_treated_as_available(self):
+        self.env["SHOP_TEST_SKUS"] = json.dumps([
+            {"name": "Standard_D8s_v5"}, {"name": "Standard_D4s_v5"}
+        ])
+        result = self.run_ps("& ./scripts/09-check-capacity.ps1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("restriction metadata", result.stderr)
+
+    def test_capacity_check_is_read_only_and_ignores_zone_only_restrictions(self):
+        self.env["SHOP_TEST_SKUS"] = json.dumps([
+            {"name": name, "family": "standardDSv5Family",
+             "restrictions": [
+                 {"type": "Zone", "reasonCode": "NotAvailableForSubscription"},
+                 {"type": "Location", "reasonCode": "NotAvailableForSubscription",
+                  "restrictionInfo": {"locations": ["another-region"]}},
+             ],
+             "capabilities": [{"name": "vCPUs", "value": str(cores)}]}
+            for name, cores in (("Standard_D8s_v5", 8), ("Standard_D4s_v5", 4))
+        ])
+        result = self.run_ps("& ./scripts/09-check-capacity.ps1")
+        self.assert_success(result)
+        self.assertIn("72", result.stdout)
+        self.assertFalse(any(
+            "create" in entry["args"] or "register" in entry["args"]
+            for entry in self.entries()
+        ))
+
+    def test_capacity_does_not_double_count_existing_successful_clusters(self):
+        self.env["SHOP_TEST_CLUSTERS"] = json.dumps([
+            {"name": "adaptive-aro", "provisioningState": "Succeeded",
+             "masterProfile": {"vmSize": "Standard_D8s_v5"},
+             "workerProfiles": [{"vmSize": "Standard_D4s_v5", "count": 3}]}
+        ])
+        self.env["SHOP_TEST_USAGE"] = json.dumps([
+            {"name": {"value": name}, "currentValue": 36, "limit": 72}
+            for name in ("cores", "standardDSv5Family")
+        ])
+        result = self.run_ps("& ./scripts/09-check-capacity.ps1")
+        self.assert_success(result)
+        self.assertIn("36", result.stdout)
+
+    def test_provider_validation_failure_stops_deployment_and_cleans_parameters(self):
+        self.save_credentials()
+        self.env["SHOP_TEST_VALIDATION_FAIL"] = "1"
+        result = self.run_ps("& ./scripts/10-apply-infrastructure.ps1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(
+            entry["args"][:3] == ["deployment", "group", "create"]
+            for entry in self.entries()
+        ))
+        self.assertFalse(list(self.credentials.parent.glob("infra-parameters-*")))
+
+    def test_custom_front_door_endpoint_is_used_throughout_deployment_and_switch(self):
+        self.save_credentials()
+        with self.env_file.open("a") as file:
+            file.write("FRONT_DOOR_ENDPOINT_NAME=test-endpoint\n")
+        self.assert_success(self.run_ps("& ./scripts/10-apply-infrastructure.ps1"))
+        parameters = json.loads((self.root / "parameters.json").read_text())["parameters"]
+        self.assertEqual(parameters["frontDoorEndpointName"]["value"], "test-endpoint")
+        for script in ("50-deploy-target", "90-switch-traffic"):
+            self.assert_success(self.run_ps(
+                "function Invoke-WebRequest { @{ StatusCode = 200 } }; "
+                f"& ./scripts/{script}.ps1 -Target aro"
+            ))
+        endpoints = [
+            entry["args"] for entry in self.entries()
+            if entry["args"][:3] == ["afd", "endpoint", "show"]
+        ]
+        self.assertEqual(len(endpoints), 2)
+        for args in endpoints:
+            self.assertEqual(args[args.index("--endpoint-name") + 1], "test-endpoint")
+        routes = [
+            entry["args"] for entry in self.entries()
+            if entry["args"][:3] == ["deployment", "group", "create"]
+            and "adaptive-shop-front-door-route" in entry["args"]
+        ]
+        self.assertEqual(len(routes), 1)
+        self.assertIn("frontDoorEndpointName=test-endpoint", routes[0])
+
+    @unittest.skipIf(os.name == "nt", "Bash parity is checked on Linux")
+    def test_bash_capacity_and_validation_stop_before_deployment(self):
+        self.save_credentials()
+        for script in ("09-check-capacity", "10-apply-infrastructure"):
+            result = subprocess.run(
+                ["bash", f"scripts/{script}.sh"], cwd=self.root, env=self.env,
+                capture_output=True, text=True,
+            )
+            self.assert_success(result)
+        self.env["SHOP_TEST_USAGE"] = json.dumps([
+            {"name": {"value": "cores"}, "currentValue": 29, "limit": 100}
+        ])
+        result = subprocess.run(
+            ["bash", "scripts/09-check-capacity.sh"], cwd=self.root, env=self.env,
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("72", result.stderr)
+        del self.env["SHOP_TEST_USAGE"]
+        self.env["SHOP_TEST_SKUS"] = json.dumps([
+            {"name": "Standard_D8s_v5", "restrictions": [
+                {"type": "Location", "reasonCode": "NotAvailableForSubscription"}
+            ]}
+        ])
+        log = self.root / "commands.jsonl"
+        log.unlink()
+        result = subprocess.run(
+            ["bash", "scripts/10-apply-infrastructure.sh"], cwd=self.root, env=self.env,
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("NotAvailableForSubscription", result.stderr)
+        self.assertFalse(any("create" in entry["args"] for entry in self.entries()))
 
     def test_credentials_have_distinct_cluster_and_user_names(self):
         self.assert_success(self.run_ps("& ./scripts/20-get-cluster-credentials.ps1"))
@@ -455,6 +640,7 @@ public static class TestToken {
             self.assertEqual(
                 args[args.index("--parameters") + 1], "frontDoorProfileName=test-frontdoor",
             )
+            self.assertIn("frontDoorEndpointName=shop", args)
             self.assertEqual(entries[index - 1]["args"][:3], ["afd", "origin", "update"])
             self.assertEqual(
                 entries[index - 1]["args"][entries[index - 1]["args"].index("--enabled-state") + 1],

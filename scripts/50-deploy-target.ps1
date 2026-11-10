@@ -119,7 +119,7 @@ try {
     Set-FrontDoorOrigin $config $Target $shopHost
     $frontDoorHost = Invoke-Tool az @('afd', 'endpoint', 'show', '--resource-group',
         $config.AZURE_RESOURCE_GROUP, '--profile-name', $config.FRONT_DOOR_PROFILE_NAME,
-        '--endpoint-name', 'shop', '--query', 'hostName', '--output', 'tsv', '--only-show-errors')
+        '--endpoint-name', $config.FRONT_DOOR_ENDPOINT_NAME, '--query', 'hostName', '--output', 'tsv', '--only-show-errors')
     Write-Host "Deployment ready on ${Target}: https://$shopHost"
     Write-Host "Front Door endpoint (switch traffic explicitly): https://$frontDoorHost"
 } finally {

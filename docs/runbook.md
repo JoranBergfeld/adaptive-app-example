@@ -39,9 +39,25 @@ The steps below use Bash; each operation also has a `.ps1` equivalent.
    Both master and worker profiles explicitly set `encryptionAtHost` to
    `Disabled`, as the ARO API rejects an omitted value. This does not disable
    Azure managed-disk encryption at rest.
+   Run `scripts/09-check-capacity.sh` for a read-only capacity preflight.
+   Script `10` runs it automatically before provider registration or group
+   creation: current SKU location restrictions and regional/family CPU quota
+   are checked against the compiled template (72 vCPUs for two new clusters).
+   Existing successful clusters with matching topology are not double-counted;
+   failed clusters are conservatively counted in full, and topology changes
+   to successful clusters require separate assessment. Zone-only restrictions
+   do not block this non-zonal template. Missing metadata and query failures
+   stop provisioning. Script `10` also runs ARM provider-level validation before
+   deployment; use a current CLI supporting `--validation-level Provider`.
+   These checks do not reserve capacity, guarantee allocation, cover every
+   service quota/upgrade requirement, or automatically choose another region
+   or VM size. Recheck on every attempt because restrictions can change.
    Front Door provisioning creates the profile, endpoint, and
    origin group only; Azure requires an enabled origin before a route can be
-   created.
+   created. If endpoint `shop` conflicts, choose an unused
+   `FRONT_DOOR_ENDPOINT_NAME` in `.env`; a different profile name alone does
+   not change the endpoint name. It defaults to `shop` to preserve existing
+   deployments and is used by scripts `10`, `50`, and `90`.
 5. Run `scripts/20-get-cluster-credentials.sh`. It saves mode-600 kubeconfigs
    and creates the explicit contexts `aro-demo` and `onprem-demo` under
    `.secrets/`.

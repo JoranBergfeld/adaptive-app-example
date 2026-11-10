@@ -232,7 +232,7 @@ front_door_origin "$target" "$shop_host"
 front_door_host="$(az afd endpoint show \
   --resource-group "$AZURE_RESOURCE_GROUP" \
   --profile-name "$FRONT_DOOR_PROFILE_NAME" \
-  --endpoint-name shop \
+  --endpoint-name "$FRONT_DOOR_ENDPOINT_NAME" \
   --query hostName \
   --output tsv \
   --only-show-errors)"

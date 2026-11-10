@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=./lib/capacity.sh
+source "$SCRIPT_DIR/lib/capacity.sh"
 load_config
 
 for name in AZURE_RESOURCE_GROUP AZURE_LOCATION KEY_VAULT_NAME FRONT_DOOR_PROFILE_NAME \
@@ -17,6 +19,7 @@ require_command sort
 require_command tail
 
 select_subscription
+check_capacity
 for provider in \
   Microsoft.Authorization \
   Microsoft.Cache \
@@ -67,6 +70,7 @@ jq -n \
   --arg openShiftVersion "$OPENSHIFT_VERSION" \
   --arg keyVaultName "$KEY_VAULT_NAME" \
   --arg frontDoorProfileName "$FRONT_DOOR_PROFILE_NAME" \
+  --arg frontDoorEndpointName "$FRONT_DOOR_ENDPOINT_NAME" \
   --arg aroServicePrincipalClientId "$ARO_SERVICE_PRINCIPAL_CLIENT_ID" \
   --arg aroServicePrincipalClientSecret "$ARO_SERVICE_PRINCIPAL_CLIENT_SECRET" \
   --arg aroServicePrincipalObjectId "$ARO_SERVICE_PRINCIPAL_OBJECT_ID" \
@@ -81,6 +85,7 @@ jq -n \
       openShiftVersion: {value: $openShiftVersion},
       keyVaultName: {value: $keyVaultName},
       frontDoorProfileName: {value: $frontDoorProfileName},
+      frontDoorEndpointName: {value: $frontDoorEndpointName},
       aroServicePrincipalClientId: {value: $aroServicePrincipalClientId},
       aroServicePrincipalClientSecret: {value: $aroServicePrincipalClientSecret},
       aroServicePrincipalObjectId: {value: $aroServicePrincipalObjectId},
@@ -90,6 +95,16 @@ jq -n \
     }
   }' >"$parameters_file"
 chmod 600 "$parameters_file"
+
+az deployment group validate \
+  --subscription "$AZURE_SUBSCRIPTION_ID" \
+  --resource-group "$AZURE_RESOURCE_GROUP" \
+  --name adaptive-shop-infrastructure \
+  --template-file "$REPO_ROOT/infra/azure/main.bicep" \
+  --parameters "@$parameters_file" \
+  --validation-level Provider \
+  --only-show-errors \
+  --output none
 
 az deployment group create \
   --subscription "$AZURE_SUBSCRIPTION_ID" \

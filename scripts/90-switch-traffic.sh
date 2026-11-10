@@ -56,13 +56,14 @@ az deployment group create \
   --name adaptive-shop-front-door-route \
   --template-file "$REPO_ROOT/infra/azure/front-door-route.bicep" \
   --parameters "frontDoorProfileName=$FRONT_DOOR_PROFILE_NAME" \
+    "frontDoorEndpointName=$FRONT_DOOR_ENDPOINT_NAME" \
   --only-show-errors \
   --output none
 
 front_door_host="$(az afd endpoint show \
   --resource-group "$AZURE_RESOURCE_GROUP" \
   --profile-name "$FRONT_DOOR_PROFILE_NAME" \
-  --endpoint-name shop \
+  --endpoint-name "$FRONT_DOOR_ENDPOINT_NAME" \
   --query hostName \
   --output tsv \
   --only-show-errors)"

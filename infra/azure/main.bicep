@@ -12,6 +12,9 @@ param keyVaultName string
 @description('Globally unique name for the Azure Front Door Standard profile.')
 param frontDoorProfileName string
 
+@description('Front Door endpoint name. Choose an unused name for a new deployment.')
+param frontDoorEndpointName string = 'shop'
+
 @description('Name of the Azure Red Hat OpenShift service principal.')
 param aroServicePrincipalClientId string
 
@@ -345,7 +348,7 @@ resource frontDoor 'Microsoft.Cdn/profiles@2025-04-15' = {
 
 resource frontDoorEndpoint 'Microsoft.Cdn/profiles/afdEndpoints@2025-04-15' = {
   parent: frontDoor
-  name: 'shop'
+  name: frontDoorEndpointName
   location: 'global'
   properties: {
     enabledState: 'Enabled'

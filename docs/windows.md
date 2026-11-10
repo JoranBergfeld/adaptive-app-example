@@ -73,6 +73,31 @@ Both clusters explicitly set `encryptionAtHost: Disabled` on master and worker
 profiles; this field cannot be omitted with the selected ARO API version.
 Azure managed-disk encryption at rest remains enabled.
 
+Run `.\scripts\09-check-capacity.ps1` to check the configured region without
+creating or deleting Azure resources. It reads the VM sizes and worker counts
+from the compiled template, checks current subscription SKU location restrictions,
+and compares the additional nodes against regional and VM-family CPU quota.
+With the default topology, two new clusters need 72 vCPUs. Existing successful
+clusters with matching topology are not counted again; failed clusters are
+conservatively counted in full. Topology changes to successful clusters require
+a separate capacity assessment. Zone-only restrictions are not blockers because
+this template does not request availability zones.
+
+Script `10` repeats this preflight before provider registration or resource-group
+creation, then runs ARM provider-level validation before deploying resources.
+Use a current Azure CLI supporting `--validation-level Provider`. Checks fail
+closed if a SKU or quota is missing or a query fails. They do not reserve capacity,
+guarantee ARO allocation, or automatically change region/VM sizes. Restrictions
+can change between a check and deployment; CPU quota checks also do not cover
+every service quota or temporary upgrade capacity.
+
+If Azure reports that `Microsoft.Cdn/profiles/afdEndpoints/shop` is unavailable,
+set `FRONT_DOOR_ENDPOINT_NAME` in `.env` to an unused name, for example
+`adaptive-shop-weu-<unique-suffix>`. Changing only the profile name does not
+change the endpoint name. The default remains `shop` for existing deployments;
+scripts `10`, `50`, and `90` all use the configured endpoint. Do not change it
+for an existing working deployment unless intentionally adding a new endpoint.
+
 Switch Azure CLI to the demo principal, then install the platforms and deploy:
 
 ```powershell
