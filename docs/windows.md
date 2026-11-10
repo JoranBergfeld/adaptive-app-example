@@ -62,9 +62,13 @@ assignments. Credentials are stored in `.secrets/service-principal.json` and
 reused on subsequent runs without rotating the password. Script `10` grants
 the resource-group Contributor and vault Secrets Officer roles, then deploys
 both ARO clusters and supporting services. This takes time and incurs charges.
-Cluster DNS labels are generated deterministically from the resource group
-and cluster names; no domain setting is required in `.env`. Front Door's route
-is deferred until script `90` enables an application origin.
+Cluster DNS labels use `aro-<hash>`, with a stable hash derived from the resource
+group and cluster names. The letter prefix is required by ARO for new clusters.
+Each cluster also specifies a separate managed resource-group ID in the same
+subscription, named `aro-managed-<hash>`. ARO creates and manages those groups;
+do not pre-create them or use the demo resource group as their ID. No domain
+or managed resource-group setting is required in `.env`. Front Door's route is
+deferred until script `90` enables an application origin.
 
 Switch Azure CLI to the demo principal, then install the platforms and deploy:
 
@@ -126,8 +130,9 @@ Native-command failures stop scripts rather than appearing as successful
 deployments. The full Azure flow still requires a rehearsal in your
 subscription; see [known limitations](limitations.md).
 
-If script `10` reports an empty `properties.clusterProfile.domain` or asks for
-an enabled Front Door origin, use the updated templates and scripts together
+If script `10` rejects `properties.clusterProfile.domain` (including a generated
+label starting with a digit), reports an empty `properties.clusterProfile.resourceGroupId`,
+or asks for an enabled Front Door origin, use the updated templates and scripts together
 and rerun `.\scripts\10-apply-infrastructure.ps1` from that checkout. These are
 template errors, not a PowerShell execution-policy or service-principal secret
 problem. The deployment uses incremental mode, so do not delete the resource

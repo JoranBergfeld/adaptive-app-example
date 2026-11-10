@@ -31,8 +31,12 @@ The steps below use Bash; each operation also has a `.ps1` equivalent.
    permission/propagation issue. Script `10` registers the required Azure
    resource providers and chooses the newest ARO version exposed by the
    regional Azure CLI command unless `OPENSHIFT_VERSION` is set.
-   Each cluster gets a stable DNS label derived from its resource group and
-   cluster name. Front Door provisioning creates the profile, endpoint, and
+   Each cluster gets a stable `aro-<hash>` DNS label derived from its resource
+   group and cluster name, ensuring that the label starts with a letter. Its
+   managed resource-group ID points to a separate `aro-managed-<hash>` group in
+   the same subscription, which ARO creates and manages. Do not pre-create these
+   groups or reuse the demo resource group for them.
+   Front Door provisioning creates the profile, endpoint, and
    origin group only; Azure requires an enabled origin before a route can be
    created.
 5. Run `scripts/20-get-cluster-credentials.sh`. It saves mode-600 kubeconfigs

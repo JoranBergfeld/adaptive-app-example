@@ -164,7 +164,8 @@ resource aroCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-prev
       visibility: 'Public'
     }
     clusterProfile: {
-      domain: uniqueString(resourceGroup().id, aroClusterName)
+      domain: 'aro-${uniqueString(resourceGroup().id, aroClusterName)}'
+      resourceGroupId: '/subscriptions/${subscription().subscriptionId}/resourceGroups/aro-managed-${uniqueString(resourceGroup().id, aroClusterName)}'
       fipsValidatedModules: 'Disabled'
       pullSecret: redHatPullSecret
       version: openShiftVersion
@@ -181,7 +182,7 @@ resource aroCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-prev
       subnetId: aroMasterSubnet.id
     }
     networkProfile: {
-      outboundType: 'LoadBalancer'
+      outboundType: 'Loadbalancer'
       podCidr: '10.128.0.0/14'
       serviceCidr: '172.30.0.0/16'
     }
@@ -213,7 +214,8 @@ resource onpremCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-p
       visibility: 'Public'
     }
     clusterProfile: {
-      domain: uniqueString(resourceGroup().id, onpremClusterName)
+      domain: 'aro-${uniqueString(resourceGroup().id, onpremClusterName)}'
+      resourceGroupId: '/subscriptions/${subscription().subscriptionId}/resourceGroups/aro-managed-${uniqueString(resourceGroup().id, onpremClusterName)}'
       fipsValidatedModules: 'Disabled'
       pullSecret: redHatPullSecret
       version: openShiftVersion
@@ -230,7 +232,7 @@ resource onpremCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-p
       subnetId: onpremMasterSubnet.id
     }
     networkProfile: {
-      outboundType: 'LoadBalancer'
+      outboundType: 'Loadbalancer'
       podCidr: '10.132.0.0/14'
       serviceCidr: '172.31.0.0/16'
     }
