@@ -73,6 +73,29 @@ if [[ "$ARO_MASTER_VM_SIZE" == *_v6 || "$ARO_WORKER_VM_SIZE" == *_v6 ]]; then
   fi
 fi
 
+provider_network_role_names=()
+for cluster in "$ARO_CLUSTER_NAME" "$ONPREM_CLUSTER_NAME"; do
+  scope="/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$AZURE_RESOURCE_GROUP/providers/Microsoft.Network/virtualNetworks/$cluster-vnet"
+  roles="$(az role assignment list --subscription "$AZURE_SUBSCRIPTION_ID" \
+    --scope "$scope" --output json --only-show-errors)"
+  role_name="$(jq -er --arg scope "$scope" --arg principal "$provider_object_id" '
+    [.[] | select(
+      (.scope | ascii_downcase) == ($scope | ascii_downcase) and
+      (.principalId | ascii_downcase) == ($principal | ascii_downcase) and
+      (.roleDefinitionId | split("/") | last | ascii_downcase) ==
+        "4d97b98b-1d4f-4787-a291-c67834d212e7"
+    )] |
+    if length > 1 then error("Multiple provider Network Contributor assignments; resolve before deployment")
+    elif length == 1 then
+      if (.[0].name // "") == "" then error("Existing provider role assignment has no name")
+      else .[0].name end
+    else "" end' <<<"$roles")"
+  provider_network_role_names+=("$role_name")
+  if [[ -n "$role_name" ]]; then
+    printf 'Reusing provider Network Contributor assignment %s on %s-vnet.\n' "$role_name" "$cluster"
+  fi
+done
+
 pull_secret=''
 if [[ -n "$RED_HAT_PULL_SECRET_FILE" ]]; then
   if [[ ! -r "$RED_HAT_PULL_SECRET_FILE" ]]; then
@@ -101,6 +124,8 @@ jq -n \
   --arg onpremServicePrincipalClientSecret "$ONPREM_SERVICE_PRINCIPAL_CLIENT_SECRET" \
   --arg onpremServicePrincipalObjectId "$ONPREM_SERVICE_PRINCIPAL_OBJECT_ID" \
   --arg aroResourceProviderObjectId "$provider_object_id" \
+  --arg aroProviderNetworkRoleName "${provider_network_role_names[0]}" \
+  --arg onpremProviderNetworkRoleName "${provider_network_role_names[1]}" \
   --arg redHatPullSecret "$pull_secret" \
   --arg aroClusterName "$ARO_CLUSTER_NAME" \
   --arg onpremClusterName "$ONPREM_CLUSTER_NAME" \
@@ -122,6 +147,8 @@ jq -n \
       onpremServicePrincipalClientSecret: {value: $onpremServicePrincipalClientSecret},
       onpremServicePrincipalObjectId: {value: $onpremServicePrincipalObjectId},
       aroResourceProviderObjectId: {value: $aroResourceProviderObjectId},
+      aroProviderNetworkRoleName: {value: $aroProviderNetworkRoleName},
+      onpremProviderNetworkRoleName: {value: $onpremProviderNetworkRoleName},
       redHatPullSecret: {value: $redHatPullSecret},
       aroClusterName: {value: $aroClusterName},
       onpremClusterName: {value: $onpremClusterName}

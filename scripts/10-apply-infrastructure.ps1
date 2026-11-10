@@ -56,6 +56,30 @@ $parameters = @{
     redHatPullSecret = $pullSecret
     aroClusterName = $config.ARO_CLUSTER_NAME; onpremClusterName = $config.ONPREM_CLUSTER_NAME
 }
+$networkRoleId = '4d97b98b-1d4f-4787-a291-c67834d212e7'
+foreach ($target in @(
+    @{ Cluster = $config.ARO_CLUSTER_NAME; Parameter = 'aroProviderNetworkRoleName' },
+    @{ Cluster = $config.ONPREM_CLUSTER_NAME; Parameter = 'onpremProviderNetworkRoleName' }
+)) {
+    $scope = "/subscriptions/$($config.AZURE_SUBSCRIPTION_ID)/resourceGroups/$($config.AZURE_RESOURCE_GROUP)/providers/Microsoft.Network/virtualNetworks/$($target.Cluster)-vnet"
+    $roles = Invoke-Tool az @('role', 'assignment', 'list', '--subscription',
+        $config.AZURE_SUBSCRIPTION_ID, '--scope', $scope, '--output', 'json',
+        '--only-show-errors') | ConvertFrom-Json
+    $matches = @($roles | Where-Object {
+        $_.scope -eq $scope -and $_.principalId -eq $providerObjectId.Trim() -and
+        ($_.roleDefinitionId -split '/')[-1] -eq $networkRoleId
+    })
+    if ($matches.Count -gt 1) {
+        throw "Multiple provider Network Contributor assignments found at $scope. Resolve the ambiguity before deployment."
+    }
+    if ($matches.Count -eq 1) {
+        if ([string]::IsNullOrWhiteSpace($matches[0].name)) {
+            throw "Existing provider Network Contributor assignment at $scope has no name."
+        }
+        $parameters[$target.Parameter] = $matches[0].name
+        Write-Host "Reusing provider Network Contributor assignment $($matches[0].name) on $($target.Cluster)-vnet."
+    }
+}
 $parametersFile = Join-Path $script:SecretsDir "infra-parameters-$([guid]::NewGuid()).json"
 try {
     Write-ParametersFile $parametersFile $parameters

@@ -75,6 +75,9 @@ resolves the tenant-local object ID of the ARO resource provider (application ID
 `f1dd0a37-89c6-4e07-bcd1-ffd3d43d8875`) and assigns it Network Contributor on
 each cluster VNet before cluster creation. Directory lookup permission is required
 for this step. This provider identity is separate from both cluster principals.
+Script `10` reuses an equivalent provider Network Contributor assignment's name
+when one already exists at the exact VNet scope, rather than trying to create
+a duplicate assignment with another GUID. Lookup errors stop deployment.
 If Azure reports provider permissions immediately after new role assignments,
 allow time for Azure RBAC propagation. A cluster whose initial creation reached
 `Failed` cannot be redeployed in place: ARO requires deleting that failed cluster
@@ -93,6 +96,48 @@ deferred until script `90` enables an application origin.
 Both clusters explicitly set `encryptionAtHost: Disabled` on master and worker
 profiles; this field cannot be omitted with the selected ARO API version.
 Azure managed-disk encryption at rest remains enabled.
+
+### Azure Policy compatibility
+
+If ARO reports unexpected mutations to managed storage (for example
+`publicNetworkAccess` changed from `Enabled` to `Disabled`), inspect Policy
+activity on the `aro-managed-*` group. Capacity checks cannot detect or resolve
+these mutations. Have the governance owner approve an ARO-compatible policy
+configuration before recreating a cluster whose initial creation failed.
+Do not manually change managed storage or add policy-bypass tags.
+
+For an approved temporary waiver, `infra/azure/aro-storage-policy-waiver.bicep`
+is a **separate subscription deployment**, not part of script `10`. It targets
+only the initiative references `StorageAccountPublicNetworkModify` and
+`StorageAccountDisableLocalAuth`. Verify those references against the actual
+assignment first; the second policy can also mutate shared-key access.
+Its selectors jointly restrict the waiver to storage accounts, one region,
+and requests by the tenant-local ARO provider identity. It covers **all matching
+ARO-provider storage requests in the subscription**, not just this demo.
+It does not exempt other policies, change the assignment, restore already-mutated
+resources, or prove that every remaining policy is compatible.
+
+After obtaining approval for the scope and expiry:
+
+```powershell
+$providerObjectId = az ad sp show --id f1dd0a37-89c6-4e07-bcd1-ffd3d43d8875 --query id -o tsv
+$assignmentId = '<approved full initiative assignment ID>'
+$expiresOn = (Get-Date).ToUniversalTime().AddDays(7).ToString('yyyy-MM-ddTHH:mm:ssZ')
+az deployment sub create --location westeurope `
+  --template-file .\infra\azure\aro-storage-policy-waiver.bicep `
+  --parameters policyAssignmentId=$assignmentId aroResourceProviderObjectId=$providerObjectId `
+    location=westeurope expiresOn=$expiresOn
+```
+
+The caller needs exemption write permission at subscription scope **and**
+`exempt/action` on the inherited assignment. A denied request requires the
+governance owner; do not broaden the waiver or disable policy enforcement.
+Verify the saved exemption retains all three selectors and both references.
+Allow policy propagation before provisioning. Review or renew with approval
+before expiry: future ARO maintenance can otherwise encounter the same mutations.
+The subscription scope survives ARO-managed resource-group deletion/recreation;
+an exemption placed on that managed group would be deleted with it.
+Never pre-create an ARO-managed resource group just to hold an exemption.
 
 Run `.\scripts\09-check-capacity.ps1` to check the configured region without
 creating or deleting Azure resources. It reads the VM sizes and worker counts

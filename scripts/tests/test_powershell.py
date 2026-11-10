@@ -68,6 +68,12 @@ if tool == "az":
         ])))
     elif args[:2] == ["group", "exists"]:
         print("true")
+    elif args[:3] == ["role", "assignment", "list"]:
+        if os.environ.get("SHOP_TEST_ROLE_LOOKUP_FAIL"):
+            print("Mock role assignment lookup failed", file=sys.stderr)
+            sys.exit(1)
+        scope = args[args.index("--scope") + 1]
+        print(os.environ.get("SHOP_TEST_ROLES", "[]").replace("TEST_VNET_SCOPE", scope.upper()))
     elif args[:2] == ["aro", "list"]:
         print(os.environ.get("SHOP_TEST_CLUSTERS", "[]"))
     elif args[:2] == ["aro", "get-admin-kubeconfig"]:
@@ -421,6 +427,73 @@ public static class TestToken {
         result = self.run_ps("& ./scripts/10-apply-infrastructure.ps1")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("resource provider service principal object ID", result.stderr)
+        self.assertFalse(any(entry["args"][:2] == ["deployment", "group"]
+                             for entry in self.entries()))
+
+    def test_existing_provider_network_role_name_is_reused_at_exact_scope(self):
+        self.save_credentials()
+        self.env["SHOP_TEST_ROLES"] = json.dumps([
+            {"name": name, "scope": scope, "principalId": principal,
+             "roleDefinitionId": "/providers/Microsoft.Authorization/roleDefinitions/" + role}
+            for name, scope, principal, role in (
+                ("existing-provider-role", "TEST_VNET_SCOPE", "PROVIDER-OBJECT",
+                 "4D97B98B-1D4F-4787-A291-C67834D212E7"),
+                ("other-principal", "TEST_VNET_SCOPE", "other",
+                 "4d97b98b-1d4f-4787-a291-c67834d212e7"),
+                ("other-role", "TEST_VNET_SCOPE", "provider-object",
+                 "b24988ac-6180-42a0-ab88-20f7382dd24c"),
+                ("inherited-role", "/subscriptions/test-subscription", "provider-object",
+                 "4d97b98b-1d4f-4787-a291-c67834d212e7"),
+            )
+        ])
+        result = self.run_ps("& ./scripts/10-apply-infrastructure.ps1")
+        self.assert_success(result)
+        parameters = json.loads((self.root / "parameters.json").read_text())["parameters"]
+        for key in ("aroProviderNetworkRoleName", "onpremProviderNetworkRoleName"):
+            self.assertEqual(parameters[key]["value"], "existing-provider-role")
+        self.assertFalse(any(entry["args"][:3] in
+                             (["role", "assignment", "delete"], ["role", "assignment", "create"])
+                             for entry in self.entries()))
+
+    def test_provider_role_lookup_failure_stops_before_deployment(self):
+        self.save_credentials()
+        self.env["SHOP_TEST_ROLE_LOOKUP_FAIL"] = "1"
+        result = self.run_ps("& ./scripts/10-apply-infrastructure.ps1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("role assignment lookup failed", result.stderr)
+        self.assertFalse(any(entry["args"][:2] == ["deployment", "group"]
+                             for entry in self.entries()))
+
+    @unittest.skipUnless(os.name != "nt" and shutil.which("bash") and shutil.which("jq"),
+                         "Requires POSIX Bash and jq")
+    def test_bash_provider_role_lookup_reuses_exact_match_and_fails_closed(self):
+        self.save_credentials()
+        with self.env_file.open("a") as file:
+            file.write("OPENSHIFT_VERSION=4.20.1\n")
+        role = {
+            "name": "existing-provider-role", "scope": "TEST_VNET_SCOPE",
+            "principalId": "PROVIDER-OBJECT",
+            "roleDefinitionId": "/providers/Microsoft.Authorization/roleDefinitions/"
+                                "4D97B98B-1D4F-4787-A291-C67834D212E7",
+        }
+        for roles, expected in (([], ""), ([role], "existing-provider-role")):
+            self.env["SHOP_TEST_ROLES"] = json.dumps(roles)
+            result = subprocess.run(
+                ["bash", "scripts/10-apply-infrastructure.sh"],
+                cwd=self.root, env=self.env, capture_output=True, text=True,
+            )
+            self.assert_success(result)
+            parameters = json.loads((self.root / "parameters.json").read_text())["parameters"]
+            for key in ("aroProviderNetworkRoleName", "onpremProviderNetworkRoleName"):
+                self.assertEqual(parameters[key]["value"], expected)
+        (self.root / "commands.jsonl").unlink()
+        self.env["SHOP_TEST_ROLE_LOOKUP_FAIL"] = "1"
+        result = subprocess.run(
+            ["bash", "scripts/10-apply-infrastructure.sh"],
+            cwd=self.root, env=self.env, capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("role assignment lookup failed", result.stderr)
         self.assertFalse(any(entry["args"][:2] == ["deployment", "group"]
                              for entry in self.entries()))
 

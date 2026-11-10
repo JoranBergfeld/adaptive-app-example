@@ -11,6 +11,29 @@ AZ = shutil.which("az")
 
 @unittest.skipUnless(AZ, "Azure CLI is not installed")
 class InfrastructureTests(unittest.TestCase):
+    def test_storage_policy_waiver_is_expiring_and_identity_region_type_restricted(self):
+        template = self.compile_template("aro-storage-policy-waiver.bicep")
+        self.assertIn("subscriptionDeploymentTemplate", template["$schema"])
+        self.assertNotIn("defaultValue", template["parameters"]["expiresOn"])
+        resources = template["resources"]
+        self.assertEqual(len(resources), 1)
+        waiver = resources[0]
+        self.assertEqual(waiver["type"], "Microsoft.Authorization/policyExemptions")
+        properties = waiver["properties"]
+        self.assertEqual(properties["exemptionCategory"], "Waiver")
+        self.assertEqual(properties["assignmentScopeValidation"], "Default")
+        self.assertEqual(properties["expiresOn"], "[parameters('expiresOn')]")
+        self.assertEqual(properties["policyDefinitionReferenceIds"],
+                         ["StorageAccountPublicNetworkModify", "StorageAccountDisableLocalAuth"])
+        selectors = properties["resourceSelectors"]
+        self.assertEqual(len(selectors), 1, "Separate groups would OR the restrictions")
+        self.assertEqual({selector["kind"]: selector["in"]
+                          for selector in selectors[0]["selectors"]}, {
+            "resourceType": ["Microsoft.Storage/storageAccounts"],
+            "resourceLocation": ["[parameters('location')]"],
+            "UserPrincipalId": ["[parameters('aroResourceProviderObjectId')]"],
+        })
+
     def test_clusters_use_distinct_service_principals(self):
         template = self.compile_template("main.bicep")
         clusters = [

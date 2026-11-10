@@ -43,11 +43,23 @@ The steps below use Bash; each operation also has a `.ps1` equivalent.
    Contributor on both VNets before creating clusters. The provisioning account
    needs directory lookup and role-assignment permissions. If a freshly assigned
    role has not propagated, allow Azure RBAC time to propagate.
+   Existing equivalent provider Network Contributor grants at each exact VNet
+   scope are reused by name; script `10` stops if role lookup fails.
    ARO requires deletion and recreation when initial cluster creation reaches
    `Failed`; it does not permit an in-place retry. Inspect the deployment and
    explicitly approve deletion of only the failed cluster first, preserving
    supporting resources and credentials. Do not automatically delete a cluster
    after an update failure.
+   If inherited Azure Policy mutates ARO-managed storage, resolve governance
+   compatibility before recreation. The separately approved, expiring subscription
+   waiver in `infra/azure/aro-storage-policy-waiver.bicep` targets only
+   `StorageAccountPublicNetworkModify` and `StorageAccountDisableLocalAuth`,
+   with all three selectors required together: storage resource type, region,
+   and ARO provider object ID. It covers all matching ARO-provider requests in
+   that subscription, not only this demo, and is never deployed by script `10`.
+   See [Azure Policy compatibility](windows.md#azure-policy-compatibility) for
+   scope, permission, expiry, and propagation requirements. Do not silently
+   disable policies or pre-create the ARO-managed resource groups.
    Each cluster gets a stable `aro-<hash>` DNS label derived from its resource
    group and cluster name, ensuring that the label starts with a letter. Its
    managed resource-group ID points to a separate `aro-managed-<hash>` group in

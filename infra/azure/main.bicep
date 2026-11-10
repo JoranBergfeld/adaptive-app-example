@@ -48,6 +48,12 @@ param aroClusterName string = 'adaptive-aro'
 @description('Name of the on-premises-style ARO stand-in cluster.')
 param onpremClusterName string = 'adaptive-onprem'
 
+@description('Existing provider Network Contributor assignment name on the ARO VNet, or empty to generate one.')
+param aroProviderNetworkRoleName string = ''
+
+@description('Existing provider Network Contributor assignment name on the onprem VNet, or empty to generate one.')
+param onpremProviderNetworkRoleName string = ''
+
 @description('Master VM size for both clusters. Dsv6 requires OpenShift 4.19 or later.')
 param aroMasterVmSize string = 'Standard_D8s_v5'
 
@@ -164,7 +170,7 @@ resource onpremNetworkRole 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 }
 
 resource aroProviderNetworkRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(aroVnet.id, aroResourceProviderObjectId, networkContributorRoleId)
+  name: empty(aroProviderNetworkRoleName) ? guid(aroVnet.id, aroResourceProviderObjectId, networkContributorRoleId) : aroProviderNetworkRoleName
   scope: aroVnet
   properties: {
     roleDefinitionId: networkContributorRoleId
@@ -174,7 +180,7 @@ resource aroProviderNetworkRole 'Microsoft.Authorization/roleAssignments@2022-04
 }
 
 resource onpremProviderNetworkRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(onpremVnet.id, aroResourceProviderObjectId, networkContributorRoleId)
+  name: empty(onpremProviderNetworkRoleName) ? guid(onpremVnet.id, aroResourceProviderObjectId, networkContributorRoleId) : onpremProviderNetworkRoleName
   scope: onpremVnet
   properties: {
     roleDefinitionId: networkContributorRoleId
