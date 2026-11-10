@@ -17,24 +17,26 @@ mkdir -p "$SECRETS_DIR"
 chmod 700 "$SECRETS_DIR"
 aro_kubeconfig="$SECRETS_DIR/aro.kubeconfig"
 onprem_kubeconfig="$SECRETS_DIR/onprem.kubeconfig"
+credentials_dir="$(mktemp -d "$SECRETS_DIR/admin-download.XXXXXX")"
+trap 'rm -f -- "$credentials_dir/aro.kubeconfig" "$credentials_dir/onprem.kubeconfig"; rmdir -- "$credentials_dir"' EXIT
 az aro get-admin-kubeconfig \
   --resource-group "$AZURE_RESOURCE_GROUP" \
   --name "$ARO_CLUSTER_NAME" \
-  --file "$aro_kubeconfig" \
-  --overwrite-existing \
+  --file "$credentials_dir/aro.kubeconfig" \
   --only-show-errors
 az aro get-admin-kubeconfig \
   --resource-group "$AZURE_RESOURCE_GROUP" \
   --name "$ONPREM_CLUSTER_NAME" \
-  --file "$onprem_kubeconfig" \
-  --overwrite-existing \
+  --file "$credentials_dir/onprem.kubeconfig" \
   --only-show-errors
+mv -- "$credentials_dir/aro.kubeconfig" "$aro_kubeconfig"
+mv -- "$credentials_dir/onprem.kubeconfig" "$onprem_kubeconfig"
 chmod 600 "$aro_kubeconfig" "$onprem_kubeconfig"
 
 aro_context="$(awk '$1 == "current-context:" {print $2; exit}' "$aro_kubeconfig")"
 onprem_context="$(awk '$1 == "current-context:" {print $2; exit}' "$onprem_kubeconfig")"
-if [[ -z "$aro_context" || -z "$onprem_context" || "$aro_context" == "$onprem_context" ]]; then
-  printf 'Could not identify two distinct contexts in the generated kubeconfigs.\n' >&2
+if [[ -z "$aro_context" || -z "$onprem_context" ]]; then
+  printf 'Could not identify current contexts in the generated kubeconfigs.\n' >&2
   exit 1
 fi
 

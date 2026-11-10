@@ -215,18 +215,18 @@ if [[ "$apps_domain" == "$console_url" || -z "$apps_domain" ]]; then
   exit 1
 fi
 shop_host="shop.$apps_domain"
-if ! oc --context "$context" get route shop --namespace shop >/dev/null 2>&1; then
-  oc --context "$context" expose service/shop-web-web \
-    --namespace shop \
-    --name shop \
-    --hostname "$shop_host"
-fi
-oc --context "$context" wait \
+oc --context "$context" create route edge shop \
   --namespace shop \
-  --for=condition=Admitted \
-  route/shop \
-  --timeout=5m
-curl --fail --silent --show-error "https://$shop_host/readyz" >/dev/null
+  --service=shop-web-web \
+  --hostname="$shop_host" \
+  --insecure-policy=Redirect \
+  --dry-run=client \
+  --output yaml |
+  oc --context "$context" apply --filename -
+curl --fail --silent --show-error \
+  --retry 30 --retry-all-errors --retry-delay 5 \
+  --connect-timeout 5 --max-time 10 \
+  "https://$shop_host/readyz" >/dev/null
 
 front_door_origin "$target" "$shop_host"
 front_door_host="$(az afd endpoint show \

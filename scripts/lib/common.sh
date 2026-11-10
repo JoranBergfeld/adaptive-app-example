@@ -30,13 +30,35 @@ load_config() {
   ARO_SERVICE_PRINCIPAL_CLIENT_ID="${ARO_SERVICE_PRINCIPAL_CLIENT_ID:-}"
   ARO_SERVICE_PRINCIPAL_CLIENT_SECRET="${ARO_SERVICE_PRINCIPAL_CLIENT_SECRET:-}"
   ARO_SERVICE_PRINCIPAL_OBJECT_ID="${ARO_SERVICE_PRINCIPAL_OBJECT_ID:-}"
+  SERVICE_PRINCIPAL_FROM_FILE=false
+  if [[ -f "$SECRETS_DIR/service-principal.json" &&
+    -z "$ARO_SERVICE_PRINCIPAL_CLIENT_ID" &&
+    -z "$ARO_SERVICE_PRINCIPAL_CLIENT_SECRET" &&
+    -z "$ARO_SERVICE_PRINCIPAL_OBJECT_ID" ]]; then
+    require_command jq
+    if ! jq -e 'all(.appId, .password, .tenant; type == "string" and length > 0)
+      and (.objectId == null or (.objectId | type == "string" and length > 0))' \
+      "$SECRETS_DIR/service-principal.json" >/dev/null; then
+      printf 'Invalid saved service principal credentials in .secrets/service-principal.json; no new identity will be created.\n' >&2
+      return 1
+    fi
+    ARO_SERVICE_PRINCIPAL_CLIENT_ID="$(jq -r '.appId' \
+      "$SECRETS_DIR/service-principal.json")" || return 1
+    ARO_SERVICE_PRINCIPAL_CLIENT_SECRET="$(jq -r '.password' \
+      "$SECRETS_DIR/service-principal.json")" || return 1
+    ARO_SERVICE_PRINCIPAL_OBJECT_ID="$(jq -r '.objectId // empty' \
+      "$SECRETS_DIR/service-principal.json")" || return 1
+    AZURE_TENANT_ID="${AZURE_TENANT_ID:-$(jq -r '.tenant' \
+      "$SECRETS_DIR/service-principal.json")}"
+    SERVICE_PRINCIPAL_FROM_FILE=true
+  fi
   RED_HAT_PULL_SECRET_FILE="${RED_HAT_PULL_SECRET_FILE:-}"
   RECIPE_REF="${RECIPE_REF:-main}"
   GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-JoranBergfeld/adaptive-app-example}"
   IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io/${GITHUB_REPOSITORY,,}}"
   IMAGE_TAG="${IMAGE_TAG:-$(git -C "$REPO_ROOT" rev-parse HEAD)}"
   KUBECONFIG="${KUBECONFIG:-$SECRETS_DIR/aro-demo.kubeconfig:$SECRETS_DIR/onprem-demo.kubeconfig}"
-  export KUBECONFIG
+  export KUBECONFIG SERVICE_PRINCIPAL_FROM_FILE
 }
 
 require_command() {

@@ -20,7 +20,7 @@ jobs:
       - name: Install API and development dependencies
         run: python -m pip install -r app/api/requirements-dev.txt
       - name: Lint API
-        run: ruff check app/api/shop_api app/api/tests
+        run: ruff check app/api/shop_api app/api/tests scripts/tests
       - name: Test API
         run: pytest -q app/api/tests
       - name: Check Compose configuration
@@ -49,6 +49,8 @@ jobs:
         run: |
           shellcheck -x -P scripts scripts/*.sh scripts/lib/common.sh
           for script in scripts/*.sh; do bash -n "$script"; done
+      - name: Test deployment scripts without Azure access
+        run: python -m unittest discover -s scripts/tests -v
       - name: Compile Azure infrastructure Bicep
         run: |
           az bicep install
@@ -76,9 +78,32 @@ jobs:
           print(f"Validated {len(files)} YAML files")
           PY
 
+  powershell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $parseErrors = @()
+          Get-ChildItem scripts -Recurse -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$tokens, [ref]$errors)
+            $parseErrors += $errors
+          }
+          if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+      - name: Test Windows workflows without Azure access
+        shell: pwsh
+        run: python -m unittest discover -s scripts/tests -p test_powershell.py -v
+
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: app
+    needs: [app, powershell]
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -48,9 +48,11 @@ PostgreSQL and Dapr secret data.
 - An Azure subscription with ARO, Azure Database for PostgreSQL Flexible
   Server, Azure Managed Redis, Key Vault, and Front Door quota and resource
   providers available in the chosen region.
-- An Azure service principal for ARO with its client ID, client secret, and
-  object ID. The infrastructure deployment grants it Contributor at the demo
-  resource-group scope and Key Vault Secrets Officer on the demo vault.
+- Permission to create applications and service principals in Microsoft Entra
+  ID (or an existing service principal). `05-create-service-principal.sh`
+  creates one without role assignments and saves its credentials privately
+  under `.secrets/`. The infrastructure deployment grants it Contributor at
+  the demo resource-group scope and Key Vault Secrets Officer on the demo vault.
 - An Azure deployment identity with resource-provider registration and role
   assignment permissions. Use the ARO service principal for later management
   scripts that write or delete demo Key Vault secrets.
@@ -70,6 +72,38 @@ unique `KEY_VAULT_NAME` and `FRONT_DOOR_PROFILE_NAME`. Set
 `RED_HAT_PULL_SECRET_FILE` to a local file path if using a Red Hat pull secret.
 Never commit `.env`, kubeconfigs, or files under `.secrets/`.
 
+## Running on Windows
+
+Use **PowerShell 7.3 or later** (`pwsh`), not Windows PowerShell 5.1. Every Bash
+operation has a native `.ps1` equivalent; no WSL, Bash, `jq`, `openssl`, or
+`curl` is needed for the PowerShell scripts. Install the same platform CLIs
+listed above and use Docker Desktop with Linux containers for the local demo.
+
+From the repository root, copy `.env.example` with
+`Copy-Item .env.example .env` (only if you have not created `.env` yet), edit the
+Azure settings, then run:
+
+```powershell
+az login
+.\scripts\00-check-prerequisites.ps1
+.\scripts\05-create-service-principal.ps1
+.\scripts\10-apply-infrastructure.ps1
+.\scripts\20-get-cluster-credentials.ps1
+.\scripts\25-login-service-principal.ps1
+.\scripts\30-bootstrap-clusters.ps1
+.\scripts\40-configure-radius.ps1
+.\scripts\50-deploy-target.ps1 -Target aro
+.\scripts\55-warm-standby.ps1
+.\scripts\90-switch-traffic.ps1 -Target aro
+```
+
+Use `.\scripts\60-failover.ps1` and `.\scripts\70-failback.ps1` to switch targets.
+The PowerShell scripts read the same `.env` and saved service-principal JSON,
+use Windows kubeconfig path separators, and restrict secret-file access to your
+Windows account. See [the Windows runbook](docs/windows.md) for permissions,
+configuration, and cleanup. The Azure/ARO compatibility limitations apply on
+Windows too.
+
 ## Deploy and operate
 
 The infrastructure script provisions **both** ARO clusters and supporting
@@ -78,6 +112,7 @@ resources; it can take a long time and incur Azure charges. Review
 
 ```bash
 scripts/00-check-prerequisites.sh
+scripts/05-create-service-principal.sh
 scripts/10-apply-infrastructure.sh
 scripts/20-get-cluster-credentials.sh
 scripts/30-bootstrap-clusters.sh
@@ -86,6 +121,15 @@ scripts/50-deploy-target.sh aro
 scripts/55-warm-standby.sh
 scripts/90-switch-traffic.sh aro
 ```
+
+Leave the three `ARO_SERVICE_PRINCIPAL_*` fields blank in `.env` to use the
+generated credentials; later scripts load them automatically. Rerunning `05`
+reuses the saved principal without rotating its password. Existing complete
+credentials in `.env` remain supported. The generated password expires after
+one year. Keep the saved file secure: the secret cannot be retrieved again
+from Azure. Resource-group deletion does not delete the Entra application or
+service principal; remove that dedicated identity separately when retiring
+the demo.
 
 `scripts/60-failover.sh` deploys the app to the on-premises-style target and
 switches Front Door to it. `scripts/70-failback.sh` deploys the app to the ARO

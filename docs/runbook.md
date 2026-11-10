@@ -1,5 +1,8 @@
 # Demo runbook
 
+For native Windows/PowerShell commands, follow [the Windows runbook](windows.md).
+The steps below use Bash; each operation also has a `.ps1` equivalent.
+
 ## One-time setup
 
 1. Make sure the current GitHub `main` contains this project and CI has
@@ -7,8 +10,10 @@
    `.../shop-web` at the commit SHA. Set the packages to public, or configure
    image pull secrets in the clusters.
 2. Copy `.env.example` to `.env`; configure the Azure subscription, region,
-   resource group, ARO service-principal values, globally unique Key Vault and
-   Front Door names, and a public `RECIPE_REF`. Use the ARO service principal
+   resource group, globally unique Key Vault and Front Door names, and a public
+   `RECIPE_REF`. Leave the three `ARO_SERVICE_PRINCIPAL_*` fields blank to
+   generate credentials, or supply all three for an existing principal.
+   Use the ARO service principal
    for Azure CLI sign-in when running scripts that set or delete Key Vault
    secrets. The infrastructure deployment also requires permission to create
    role assignments.
@@ -16,8 +21,14 @@
    availability of ARO and the managed services in the region. The
    infrastructure template uses 3 worker nodes per cluster.
 4. Sign in with an identity that can create resources and role assignments in
-   the subscription, then run `scripts/00-check-prerequisites.sh` and
-   `scripts/10-apply-infrastructure.sh`. It registers the required Azure
+   the subscription and create applications/service principals in Microsoft
+   Entra ID, then run `scripts/00-check-prerequisites.sh`,
+   `scripts/05-create-service-principal.sh`, and
+   `scripts/10-apply-infrastructure.sh`. Script `05` saves credentials in
+   `.secrets/service-principal.json` with mode 600; later scripts load them
+   automatically, and reruns reuse them rather than rotate secrets. If directory
+   lookup fails after creation, keep the file and rerun `05` after resolving the
+   permission/propagation issue. Script `10` registers the required Azure
    resource providers and chooses the newest ARO version exposed by the
    regional Azure CLI command unless `OPENSHIFT_VERSION` is set.
 5. Run `scripts/20-get-cluster-credentials.sh`. It saves mode-600 kubeconfigs
@@ -26,6 +37,22 @@
    Before running the remaining scripts, sign in to Azure CLI as the ARO
    service principal; it has the resource-group Contributor and Key Vault
    Secrets Officer roles required by the demo.
+
+   ```bash
+   (
+     source scripts/lib/common.sh
+     load_config
+     az login --service-principal \
+       --username "$ARO_SERVICE_PRINCIPAL_CLIENT_ID" \
+       --password="$ARO_SERVICE_PRINCIPAL_CLIENT_SECRET" \
+       --tenant "$AZURE_TENANT_ID" --output none
+     select_subscription
+   )
+   ```
+
+   For an existing principal, set `AZURE_TENANT_ID` in `.env` as well. Generated
+   credentials include the tenant automatically. Allow time for new role
+   assignments to propagate before continuing.
 6. Run `scripts/30-bootstrap-clusters.sh` and `scripts/40-configure-radius.sh`.
    This installs Dapr and Radius separately on each ARO cluster and
    CloudNativePG on the stand-in target.
@@ -59,6 +86,10 @@
 - `scripts/95-destroy-infrastructure.sh` deletes the complete configured Azure
   resource group after an exact-name confirmation. This is destructive and
   cannot be undone. Verify the resource group before confirming.
+- The generated Entra application/service principal is not part of the resource
+  group and is not deleted by either script. Delete that dedicated identity
+  separately when retiring the demo. Its generated password expires after one
+  year; do not delete the saved credentials to rotate it on an existing cluster.
 
 ## Troubleshooting boundaries
 
