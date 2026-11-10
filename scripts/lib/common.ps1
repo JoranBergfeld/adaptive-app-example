@@ -35,13 +35,16 @@ function Invoke-Tool {
 function Protect-PrivatePath {
     param([string]$Path)
     if ($IsWindows) {
-        $acl = Get-Acl -LiteralPath $Path
-        $acl.SetAccessRuleProtection($true, $false)
-        foreach ($rule in @($acl.Access)) {
-            [void]$acl.RemoveAccessRuleSpecific($rule)
+        $isDirectory = Test-Path -LiteralPath $Path -PathType Container
+        # A fresh descriptor modifies only the DACL, not the owner or audit SACL.
+        $acl = if ($isDirectory) {
+            [Security.AccessControl.DirectorySecurity]::new()
+        } else {
+            [Security.AccessControl.FileSecurity]::new()
         }
+        $acl.SetAccessRuleProtection($true, $false)
         $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-        $inheritance = if (Test-Path -LiteralPath $Path -PathType Container) {
+        $inheritance = if ($isDirectory) {
             [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
         } else {
             [Security.AccessControl.InheritanceFlags]::None
@@ -49,7 +52,11 @@ function Protect-PrivatePath {
         $rule = [Security.AccessControl.FileSystemAccessRule]::new(
             $sid, 'FullControl', $inheritance, 'None', 'Allow')
         $acl.AddAccessRule($rule)
-        Set-Acl -LiteralPath $Path -AclObject $acl
+        if ($isDirectory) {
+            [IO.FileSystemAclExtensions]::SetAccessControl([IO.DirectoryInfo]::new($Path), $acl)
+        } else {
+            [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($Path), $acl)
+        }
     } else {
         $mode = if (Test-Path -LiteralPath $Path -PathType Container) {
             [IO.UnixFileMode]'UserRead, UserWrite, UserExecute'

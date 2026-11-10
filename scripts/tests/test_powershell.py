@@ -184,6 +184,78 @@ class PowerShellTests(unittest.TestCase):
         self.assertFalse(any("create-for-rbac" in entry["args"] for entry in self.entries()))
         self.assertEqual(json.loads(self.credentials.read_text())["password"], "test-secret")
 
+    @unittest.skipUnless(os.name == "nt", "Windows access-control regression")
+    def test_permissions_work_without_security_privilege_and_preserve_ownership(self):
+        self.save_credentials()
+        result = self.run_ps(r'''
+            $ErrorActionPreference = 'Stop'
+            Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class TestToken {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Luid { public uint Low; public int High; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TokenPrivileges {
+        public uint Count; public Luid Luid; public uint Attributes;
+    }
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll")]
+    static extern bool CloseHandle(IntPtr handle);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool LookupPrivilegeValue(string system, string name, out Luid luid);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll,
+        ref TokenPrivileges privileges, uint length, IntPtr previous, IntPtr required);
+    public static void RemoveSecurityPrivilege() {
+        IntPtr token;
+        if (!OpenProcessToken(GetCurrentProcess(), 0x28, out token))
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        try {
+            Luid luid;
+            if (!LookupPrivilegeValue(null, "SeSecurityPrivilege", out luid))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            // Remove this privilege only from the disposable test process.
+            var privileges = new TokenPrivileges { Count = 1, Luid = luid, Attributes = 4 };
+            if (!AdjustTokenPrivileges(token, false, ref privileges, 0,
+                                       IntPtr.Zero, IntPtr.Zero))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            int error = Marshal.GetLastWin32Error();
+            if (error != 0 && error != 1300) // 1300 means it was already absent.
+                throw new Win32Exception(error);
+        } finally { CloseHandle(token); }
+    }
+}
+'@
+            [TestToken]::RemoveSecurityPrivilege()
+            . ./scripts/lib/common.ps1
+            $paths = @('.secrets', '.secrets/service-principal.json')
+            $owners = @{}
+            foreach ($path in $paths) { $owners[$path] = (Get-Acl $path).Owner }
+            $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            foreach ($path in $paths) {
+                Protect-PrivatePath (Join-Path $PWD $path)
+                Protect-PrivatePath (Join-Path $PWD $path)
+                $acl = Get-Acl $path
+                if ($acl.Owner -ne $owners[$path]) { throw 'Owner changed' }
+                if (-not $acl.AreAccessRulesProtected) { throw 'Inherited access remains' }
+                if (@($acl.Access).Count -ne 1) { throw 'Unexpected access rules' }
+                $rule = @($acl.Access)[0]
+                $identity = $rule.IdentityReference.Translate(
+                    [Security.Principal.SecurityIdentifier]).Value
+                if ($identity -ne $sid -or $rule.AccessControlType -ne 'Allow' -or
+                    $rule.FileSystemRights -ne 'FullControl') {
+                    throw 'Current-user-only FullControl was not applied'
+                }
+            }
+        ''')
+        self.assert_success(result)
+        self.assertEqual(json.loads(self.credentials.read_text())["password"], "test-secret")
+
     def test_partial_explicit_credentials_fail_without_mixing(self):
         self.save_credentials()
         with self.env_file.open("a") as file:
@@ -203,9 +275,11 @@ class PowerShellTests(unittest.TestCase):
         self.assert_success(result)
         value = json.loads(result.stdout)
         self.assertEqual(value["path"], r"C:\Users\Demo User\pull-secret.json")
-        self.assertEqual(value["kubeconfig"].split(os.pathsep), [
-            str(self.root / ".secrets/aro-demo.kubeconfig"),
-            str(self.root / ".secrets/onprem-demo.kubeconfig"),
+        self.assertEqual([
+            Path(path).resolve() for path in value["kubeconfig"].split(os.pathsep)
+        ], [
+            (self.root / ".secrets/aro-demo.kubeconfig").resolve(),
+            (self.root / ".secrets/onprem-demo.kubeconfig").resolve(),
         ])
 
     def test_native_failure_stops_and_does_not_log_secret_arguments(self):

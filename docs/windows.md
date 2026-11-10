@@ -36,7 +36,9 @@ RED_HAT_PULL_SECRET_FILE="C:\Users\Demo User\Downloads\pull-secret.txt"
 Do not overwrite an existing `.env` or commit it. The `.secrets` directory is
 Git-ignored; PowerShell disables inherited access rules and restricts access to
 your Windows account. Use a local filesystem supporting Windows ACLs (normally
-NTFS), not a shared folder with different permission semantics.
+NTFS), not a shared folder with different permission semantics. Only access
+rules are changed, not file ownership or audit rules; no `SeSecurityPrivilege`
+or administrator elevation is required to protect files you own.
 
 If execution policy blocks locally reviewed scripts, use your organization's
 approved policy/process. Do not disable execution policy machine-wide.
