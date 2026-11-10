@@ -20,13 +20,14 @@ if args[:4] == ["ad", "sp", "create-for-rbac", "--name"]:
     if os.environ.get("AZ_TEST_CREATE_FAILURE"):
         print("Directory permission denied", file=sys.stderr)
         sys.exit(1)
-    print(json.dumps({"appId": "test-client", "password": "test-secret",
+    target = "onprem" if "-onprem-" in args[args.index("--name") + 1] else "test"
+    print(json.dumps({"appId": target + "-client", "password": target + "-secret",
                       "tenant": "test-tenant"}))
 elif args[:3] == ["ad", "sp", "show"]:
     if os.environ.get("AZ_TEST_LOOKUP_FAILURE"):
         print("Directory lookup failed", file=sys.stderr)
         sys.exit(1)
-    print("test-object")
+    print("onprem-object" if args[args.index("--id") + 1] == "onprem-client" else "test-object")
 elif args[:2] != ["account", "set"]:
     raise SystemExit("Unexpected Azure command: " + repr(args))
 """
@@ -57,7 +58,7 @@ class ServicePrincipalTests(unittest.TestCase):
         self.env = {
             key: value
             for key, value in os.environ.items()
-            if not key.startswith(("ARO_SERVICE_PRINCIPAL_", "AZ_TEST_"))
+            if not key.startswith(("ARO_SERVICE_PRINCIPAL_", "ONPREM_SERVICE_PRINCIPAL_", "AZ_TEST_"))
         }
         self.env.update(
             PATH=f"{tools}:{os.environ['PATH']}",
@@ -68,9 +69,9 @@ class ServicePrincipalTests(unittest.TestCase):
         )
         self.credentials = self.root / ".secrets/service-principal.json"
 
-    def run_setup(self):
+    def run_setup(self, target="aro"):
         return subprocess.run(
-            ["bash", "scripts/05-create-service-principal.sh"],
+            ["bash", "scripts/05-create-service-principal.sh", target],
             cwd=self.root, env=self.env, capture_output=True, text=True,
         )
 
@@ -116,6 +117,34 @@ class ServicePrincipalTests(unittest.TestCase):
         self.assertEqual(
             sum(args[:3] == ["ad", "sp", "create-for-rbac"] for args in self.commands()), 1,
         )
+
+    def test_onprem_principal_is_separate_and_reused_without_changing_primary(self):
+        primary = self.run_setup()
+        self.assertEqual(primary.returncode, 0, primary.stderr)
+        original = self.credentials.read_bytes()
+        for _ in range(2):
+            result = self.run_setup("onprem")
+            self.assertEqual(result.returncode, 0, result.stderr)
+        onprem = self.credentials.with_name("onprem-service-principal.json")
+        self.assertEqual(self.credentials.read_bytes(), original)
+        self.assertEqual(json.loads(onprem.read_text())["appId"], "onprem-client")
+        self.assertEqual(json.loads(onprem.read_text())["objectId"], "onprem-object")
+        self.assertEqual(stat.S_IMODE(onprem.stat().st_mode), 0o600)
+        self.assertEqual(
+            sum(args[:3] == ["ad", "sp", "create-for-rbac"] for args in self.commands()), 2,
+        )
+
+    def test_onprem_partial_explicit_configuration_does_not_mix_saved_credentials(self):
+        saved = self.run_setup("onprem")
+        self.assertEqual(saved.returncode, 0, saved.stderr)
+        onprem = self.credentials.with_name("onprem-service-principal.json")
+        original = onprem.read_bytes()
+        with (self.root / ".env").open("a") as file:
+            file.write("ONPREM_SERVICE_PRINCIPAL_CLIENT_ID=another-client\n")
+        result = self.run_setup("onprem")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ONPREM_SERVICE_PRINCIPAL_CLIENT_SECRET", result.stderr)
+        self.assertEqual(onprem.read_bytes(), original)
 
     def test_partial_explicit_configuration_does_not_create_or_mix_credentials(self):
         self.assertEqual(self.run_setup().returncode, 0)

@@ -5,6 +5,11 @@ umask 077
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
+target="${1:-aro}"
+case "$target" in
+  aro|onprem) ;;
+  *) printf 'Expected target aro or onprem.\n' >&2; exit 2 ;;
+esac
 load_config
 
 require_command az
@@ -13,17 +18,24 @@ require_value AZURE_RESOURCE_GROUP
 select_subscription
 
 credentials_file="$SECRETS_DIR/service-principal.json"
-if [[ -n "$ARO_SERVICE_PRINCIPAL_CLIENT_ID" ||
-  -n "$ARO_SERVICE_PRINCIPAL_CLIENT_SECRET" ||
-  -n "$ARO_SERVICE_PRINCIPAL_OBJECT_ID" ]]; then
-  require_value ARO_SERVICE_PRINCIPAL_CLIENT_ID
-  require_value ARO_SERVICE_PRINCIPAL_CLIENT_SECRET
-  if [[ -n "$ARO_SERVICE_PRINCIPAL_OBJECT_ID" ]]; then
+from_file="$SERVICE_PRINCIPAL_FROM_FILE"
+if [[ "$target" == onprem ]]; then
+  credentials_file="$SECRETS_DIR/onprem-service-principal.json"
+  from_file="$ONPREM_SERVICE_PRINCIPAL_FROM_FILE"
+fi
+prefix="${target^^}"
+client_key="${prefix}_SERVICE_PRINCIPAL_CLIENT_ID"
+secret_key="${prefix}_SERVICE_PRINCIPAL_CLIENT_SECRET"
+object_key="${prefix}_SERVICE_PRINCIPAL_OBJECT_ID"
+if [[ -n "${!client_key}" || -n "${!secret_key}" || -n "${!object_key}" ]]; then
+  require_value "$client_key"
+  require_value "$secret_key"
+  if [[ -n "${!object_key}" ]]; then
     printf 'Using the configured service principal; no credentials were changed.\n'
     exit 0
   fi
-  if [[ "$SERVICE_PRINCIPAL_FROM_FILE" != true ]]; then
-    require_value ARO_SERVICE_PRINCIPAL_OBJECT_ID
+  if [[ "$from_file" != true ]]; then
+    require_value "$object_key"
   fi
 else
   mkdir -p "$SECRETS_DIR"
@@ -33,7 +45,7 @@ else
   suffix="${temporary_file%.json}"
   suffix="${suffix##*.}"
   az ad sp create-for-rbac \
-    --name "${AZURE_RESOURCE_GROUP}-aro-${suffix}" \
+    --name "${AZURE_RESOURCE_GROUP}-${target}-${suffix}" \
     --skip-assignment \
     --years 1 \
     --only-show-errors \
@@ -49,7 +61,7 @@ object_id=''
 resolved=false
 for _ in $(seq 1 12); do
   if object_id="$(az ad sp show \
-    --id "$ARO_SERVICE_PRINCIPAL_CLIENT_ID" \
+    --id "${!client_key}" \
     --query id \
     --output tsv \
     --only-show-errors)" && [[ -n "$object_id" ]]; then
@@ -68,5 +80,5 @@ trap 'rm -f -- "$temporary_file"' EXIT
 jq --arg objectId "$object_id" '. + {objectId: $objectId}' \
   "$credentials_file" >"$temporary_file"
 mv -- "$temporary_file" "$credentials_file"
-printf 'Service principal created; credentials saved privately in .secrets/service-principal.json.\n'
+printf 'Service principal credentials saved privately in %s.\n' "$credentials_file"
 printf 'Later scripts load this file automatically. Resource-group roles are assigned by 10-apply-infrastructure.sh.\n'

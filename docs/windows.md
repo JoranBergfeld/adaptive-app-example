@@ -20,8 +20,9 @@ notepad .env
 ```
 
 Set the Azure subscription, region, resource group, and globally unique vault
-and Front Door names. Leave the three `ARO_SERVICE_PRINCIPAL_*` fields blank
-to generate a principal. Set `AZURE_TENANT_ID` if using an existing principal.
+and Front Door names. Leave `ARO_SERVICE_PRINCIPAL_*` and
+`ONPREM_SERVICE_PRINCIPAL_*` blank to generate separate principals.
+Set `AZURE_TENANT_ID` if using existing principals.
 The generated credentials already include their tenant.
 
 The PowerShell `.env` reader accepts `NAME=value`, blank lines, comments on
@@ -53,14 +54,34 @@ service principals:
 az login
 .\scripts\00-check-prerequisites.ps1
 .\scripts\05-create-service-principal.ps1
+.\scripts\05-create-service-principal.ps1 -Target onprem
 .\scripts\10-apply-infrastructure.ps1
 .\scripts\20-get-cluster-credentials.ps1
 ```
 
-Script `05` creates a dedicated principal with a one-year password but no role
-assignments. Credentials are stored in `.secrets/service-principal.json` and
-reused on subsequent runs without rotating the password. Script `10` grants
-the resource-group Contributor and vault Secrets Officer roles, then deploys
+Script `05` creates a dedicated principal per target with a one-year password
+but no role assignments. The default target is `aro`; `-Target onprem` creates
+the second cluster's separate identity. Credentials are stored in
+`.secrets/service-principal.json` and `.secrets/onprem-service-principal.json`
+and reused on subsequent runs without rotating passwords. ARO does not allow
+two clusters to share a service principal. Keep the original primary principal
+when upgrading a partially deployed demo; only add the onprem principal.
+Explicit credentials must supply all three fields for each target, with distinct
+client and object IDs.
+
+Script `10` grants both cluster principals resource-group Contributor, and
+the primary principal vault Secrets Officer for the later demo scripts. It also
+resolves the tenant-local object ID of the ARO resource provider (application ID
+`f1dd0a37-89c6-4e07-bcd1-ffd3d43d8875`) and assigns it Network Contributor on
+each cluster VNet before cluster creation. Directory lookup permission is required
+for this step. This provider identity is separate from both cluster principals.
+If Azure reports provider permissions immediately after new role assignments,
+allow time for Azure RBAC propagation. A cluster whose initial creation reached
+`Failed` cannot be redeployed in place: ARO requires deleting that failed cluster
+before recreating it. Inspect the failed deployment and cluster first, then
+explicitly approve any cluster deletion; do not delete the whole demo resource
+group, remove credentials, or automatically delete a cluster after an update failure.
+Script `10` then deploys
 both ARO clusters and supporting services. This takes time and incurs charges.
 Cluster DNS labels use `aro-<hash>`, with a stable hash derived from the resource
 group and cluster names. The letter prefix is required by ARO for new clusters.

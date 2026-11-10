@@ -33,28 +33,43 @@ load_config() {
   ARO_SERVICE_PRINCIPAL_CLIENT_ID="${ARO_SERVICE_PRINCIPAL_CLIENT_ID:-}"
   ARO_SERVICE_PRINCIPAL_CLIENT_SECRET="${ARO_SERVICE_PRINCIPAL_CLIENT_SECRET:-}"
   ARO_SERVICE_PRINCIPAL_OBJECT_ID="${ARO_SERVICE_PRINCIPAL_OBJECT_ID:-}"
+  ONPREM_SERVICE_PRINCIPAL_CLIENT_ID="${ONPREM_SERVICE_PRINCIPAL_CLIENT_ID:-}"
+  ONPREM_SERVICE_PRINCIPAL_CLIENT_SECRET="${ONPREM_SERVICE_PRINCIPAL_CLIENT_SECRET:-}"
+  ONPREM_SERVICE_PRINCIPAL_OBJECT_ID="${ONPREM_SERVICE_PRINCIPAL_OBJECT_ID:-}"
   SERVICE_PRINCIPAL_FROM_FILE=false
-  if [[ -f "$SECRETS_DIR/service-principal.json" &&
-    -z "$ARO_SERVICE_PRINCIPAL_CLIENT_ID" &&
-    -z "$ARO_SERVICE_PRINCIPAL_CLIENT_SECRET" &&
-    -z "$ARO_SERVICE_PRINCIPAL_OBJECT_ID" ]]; then
-    require_command jq
-    if ! jq -e 'all(.appId, .password, .tenant; type == "string" and length > 0)
-      and (.objectId == null or (.objectId | type == "string" and length > 0))' \
-      "$SECRETS_DIR/service-principal.json" >/dev/null; then
-      printf 'Invalid saved service principal credentials in .secrets/service-principal.json; no new identity will be created.\n' >&2
-      return 1
+  ONPREM_SERVICE_PRINCIPAL_FROM_FILE=false
+  local target prefix credentials_file client_key secret_key object_key flag
+  for target in aro onprem; do
+    prefix="${target^^}"
+    client_key="${prefix}_SERVICE_PRINCIPAL_CLIENT_ID"
+    secret_key="${prefix}_SERVICE_PRINCIPAL_CLIENT_SECRET"
+    object_key="${prefix}_SERVICE_PRINCIPAL_OBJECT_ID"
+    credentials_file="$SECRETS_DIR/service-principal.json"
+    flag=SERVICE_PRINCIPAL_FROM_FILE
+    if [[ "$target" == onprem ]]; then
+      credentials_file="$SECRETS_DIR/onprem-service-principal.json"
+      flag=ONPREM_SERVICE_PRINCIPAL_FROM_FILE
     fi
-    ARO_SERVICE_PRINCIPAL_CLIENT_ID="$(jq -r '.appId' \
-      "$SECRETS_DIR/service-principal.json")" || return 1
-    ARO_SERVICE_PRINCIPAL_CLIENT_SECRET="$(jq -r '.password' \
-      "$SECRETS_DIR/service-principal.json")" || return 1
-    ARO_SERVICE_PRINCIPAL_OBJECT_ID="$(jq -r '.objectId // empty' \
-      "$SECRETS_DIR/service-principal.json")" || return 1
-    AZURE_TENANT_ID="${AZURE_TENANT_ID:-$(jq -r '.tenant' \
-      "$SECRETS_DIR/service-principal.json")}"
-    SERVICE_PRINCIPAL_FROM_FILE=true
-  fi
+    if [[ -f "$credentials_file" && -z "${!client_key}" &&
+      -z "${!secret_key}" && -z "${!object_key}" ]]; then
+      require_command jq
+      if ! jq -e 'all(.appId, .password, .tenant; type == "string" and length > 0)
+        and (.objectId == null or (.objectId | type == "string" and length > 0))' \
+        "$credentials_file" >/dev/null; then
+        printf 'Invalid saved service principal credentials in %s; no new identity will be created.\n' "$credentials_file" >&2
+        return 1
+      fi
+      local client_id client_secret object_id
+      client_id="$(jq -r '.appId' "$credentials_file")" || return 1
+      client_secret="$(jq -r '.password' "$credentials_file")" || return 1
+      object_id="$(jq -r '.objectId // empty' "$credentials_file")" || return 1
+      printf -v "$client_key" '%s' "$client_id"
+      printf -v "$secret_key" '%s' "$client_secret"
+      printf -v "$object_key" '%s' "$object_id"
+      AZURE_TENANT_ID="${AZURE_TENANT_ID:-$(jq -r '.tenant' "$credentials_file")}"
+      printf -v "$flag" '%s' true
+    fi
+  done
   RED_HAT_PULL_SECRET_FILE="${RED_HAT_PULL_SECRET_FILE:-}"
   RECIPE_REF="${RECIPE_REF:-main}"
   GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-JoranBergfeld/adaptive-app-example}"

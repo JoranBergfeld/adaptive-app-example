@@ -11,8 +11,10 @@ The steps below use Bash; each operation also has a `.ps1` equivalent.
    image pull secrets in the clusters.
 2. Copy `.env.example` to `.env`; configure the Azure subscription, region,
    resource group, globally unique Key Vault and Front Door names, and a public
-   `RECIPE_REF`. Leave the three `ARO_SERVICE_PRINCIPAL_*` fields blank to
-   generate credentials, or supply all three for an existing principal.
+   `RECIPE_REF`. Leave `ARO_SERVICE_PRINCIPAL_*` and `ONPREM_SERVICE_PRINCIPAL_*`
+   blank to generate separate credentials, or supply all three fields per target.
+   ARO requires a unique service principal per cluster; do not reuse client or
+   object IDs across the two sets.
    Use the ARO service principal
    for Azure CLI sign-in when running scripts that set or delete Key Vault
    secrets. The infrastructure deployment also requires permission to create
@@ -23,14 +25,29 @@ The steps below use Bash; each operation also has a `.ps1` equivalent.
 4. Sign in with an identity that can create resources and role assignments in
    the subscription and create applications/service principals in Microsoft
    Entra ID, then run `scripts/00-check-prerequisites.sh`,
-   `scripts/05-create-service-principal.sh`, and
+   `scripts/05-create-service-principal.sh`,
+   `scripts/05-create-service-principal.sh onprem`, and
    `scripts/10-apply-infrastructure.sh`. Script `05` saves credentials in
-   `.secrets/service-principal.json` with mode 600; later scripts load them
+   `.secrets/service-principal.json` (default target `aro`) and
+   `.secrets/onprem-service-principal.json` with mode 600; later scripts load them
    automatically, and reruns reuse them rather than rotate secrets. If directory
    lookup fails after creation, keep the file and rerun `05` after resolving the
    permission/propagation issue. Script `10` registers the required Azure
    resource providers and chooses the newest ARO version exposed by the
    regional Azure CLI command unless `OPENSHIFT_VERSION` is set.
+   Keep the existing primary credentials when upgrading a partial deployment;
+   add only the separate onprem identity. Both principals get resource-group
+   Contributor; the primary retains vault Secrets Officer for demo operations.
+   Script `10` resolves ARO's separate resource-provider identity (application
+   `f1dd0a37-89c6-4e07-bcd1-ffd3d43d8875`) through Entra and grants it Network
+   Contributor on both VNets before creating clusters. The provisioning account
+   needs directory lookup and role-assignment permissions. If a freshly assigned
+   role has not propagated, allow Azure RBAC time to propagate.
+   ARO requires deletion and recreation when initial cluster creation reaches
+   `Failed`; it does not permit an in-place retry. Inspect the deployment and
+   explicitly approve deletion of only the failed cluster first, preserving
+   supporting resources and credentials. Do not automatically delete a cluster
+   after an update failure.
    Each cluster gets a stable `aro-<hash>` DNS label derived from its resource
    group and cluster name, ensuring that the label starts with a letter. Its
    managed resource-group ID points to a separate `aro-managed-<hash>` group in

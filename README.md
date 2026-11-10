@@ -87,6 +87,7 @@ Azure settings, then run:
 az login
 .\scripts\00-check-prerequisites.ps1
 .\scripts\05-create-service-principal.ps1
+.\scripts\05-create-service-principal.ps1 -Target onprem
 .\scripts\10-apply-infrastructure.ps1
 .\scripts\20-get-cluster-credentials.ps1
 .\scripts\25-login-service-principal.ps1
@@ -113,6 +114,7 @@ resources; it can take a long time and incur Azure charges. Review
 ```bash
 scripts/00-check-prerequisites.sh
 scripts/05-create-service-principal.sh
+scripts/05-create-service-principal.sh onprem
 scripts/10-apply-infrastructure.sh
 scripts/20-get-cluster-credentials.sh
 scripts/30-bootstrap-clusters.sh
@@ -122,13 +124,16 @@ scripts/55-warm-standby.sh
 scripts/90-switch-traffic.sh aro
 ```
 
-Leave the three `ARO_SERVICE_PRINCIPAL_*` fields blank in `.env` to use the
-generated credentials; later scripts load them automatically. Rerunning `05`
-reuses the saved principal without rotating its password. Existing complete
-credentials in `.env` remain supported. The generated password expires after
-one year. Keep the saved file secure: the secret cannot be retrieved again
+Leave the `ARO_SERVICE_PRINCIPAL_*` and `ONPREM_SERVICE_PRINCIPAL_*` fields blank
+in `.env` to use generated credentials; ARO requires a unique principal per
+cluster. Script `05` defaults to `aro`; run it again with target `onprem`.
+Later scripts load `.secrets/service-principal.json` and
+`.secrets/onprem-service-principal.json` automatically. Rerunning `05` for a
+target reuses its saved principal without rotating its password. Existing complete,
+distinct credentials in `.env` remain supported. Generated passwords expire after
+one year. Keep the saved files secure: secrets cannot be retrieved again
 from Azure. Resource-group deletion does not delete the Entra application or
-service principal; remove that dedicated identity separately when retiring
+service principals; remove those dedicated identities separately when retiring
 the demo.
 
 `scripts/60-failover.sh` deploys the app to the on-premises-style target and

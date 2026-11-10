@@ -29,13 +29,21 @@ if tool == "az":
     if args[:2] == ["account", "show"]:
         print("test-tenant" if "tenantId" in args else "test-subscription")
     elif args[:3] == ["ad", "sp", "create-for-rbac"]:
-        print(json.dumps({"appId": "test-client", "password": "test-secret",
+        target = "onprem" if "-onprem-" in args[args.index("--name") + 1] else "test"
+        print(json.dumps({"appId": target + "-client", "password": target + "-secret",
                           "tenant": "test-tenant"}))
     elif args[:3] == ["ad", "sp", "show"]:
         if os.environ.get("SHOP_TEST_LOOKUP_FAIL"):
             print("Mock directory lookup failed", file=sys.stderr)
             sys.exit(1)
-        print("test-object")
+        if os.environ.get("SHOP_TEST_PROVIDER_EMPTY") and \
+                args[args.index("--id") + 1] == "f1dd0a37-89c6-4e07-bcd1-ffd3d43d8875":
+            print("")
+        else:
+            print({
+                "onprem-client": "onprem-object",
+                "f1dd0a37-89c6-4e07-bcd1-ffd3d43d8875": "provider-object",
+            }.get(args[args.index("--id") + 1], "test-object"))
     elif args[:2] == ["aro", "get-versions"]:
         print('["4.9.9", "4.20.1", "4.19.9"]')
     elif args[:2] == ["bicep", "build"]:
@@ -186,6 +194,10 @@ class PowerShellTests(unittest.TestCase):
         if object_id:
             value["objectId"] = object_id
         self.credentials.write_text(json.dumps(value))
+        (self.credentials.parent / "onprem-service-principal.json").write_text(json.dumps({
+            "appId": "onprem-client", "password": "onprem-secret", "tenant": "test-tenant",
+            "objectId": "onprem-object",
+        }))
 
     def assert_success(self, result):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -222,6 +234,34 @@ class PowerShellTests(unittest.TestCase):
         self.assert_success(self.run_ps("& ./scripts/05-create-service-principal.ps1"))
         self.assertFalse(any("create-for-rbac" in entry["args"] for entry in self.entries()))
         self.assertEqual(json.loads(self.credentials.read_text())["password"], "test-secret")
+
+    def test_creates_and_reuses_separate_onprem_principal_without_changing_primary(self):
+        self.save_credentials()
+        original = self.credentials.read_bytes()
+        onprem = self.credentials.parent / "onprem-service-principal.json"
+        onprem.unlink()
+        for _ in range(2):
+            self.assert_success(self.run_ps(
+                "& ./scripts/05-create-service-principal.ps1 -Target onprem"))
+        self.assertEqual(self.credentials.read_bytes(), original)
+        self.assertEqual(json.loads(onprem.read_text())["appId"], "onprem-client")
+        creations = [entry for entry in self.entries() if "create-for-rbac" in entry["args"]]
+        self.assertEqual(len(creations), 1)
+        result = self.run_ps(
+            ". ./scripts/lib/common.ps1; $c = Get-ShopConfig; "
+            "@{aro=$c.ARO_SERVICE_PRINCIPAL_CLIENT_ID; "
+            "onprem=$c.ONPREM_SERVICE_PRINCIPAL_CLIENT_ID} | ConvertTo-Json")
+        self.assert_success(result)
+        self.assertEqual(json.loads(result.stdout), {"aro": "test-client", "onprem": "onprem-client"})
+
+    def test_onprem_partial_explicit_configuration_does_not_mix_saved_credentials(self):
+        self.save_credentials()
+        with self.env_file.open("a") as file:
+            file.write("ONPREM_SERVICE_PRINCIPAL_CLIENT_ID=another-client\n")
+        result = self.run_ps("& ./scripts/05-create-service-principal.ps1 -Target onprem")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ONPREM_SERVICE_PRINCIPAL_CLIENT_SECRET", result.stderr)
+        self.assertFalse(any("create-for-rbac" in entry["args"] for entry in self.entries()))
 
     @unittest.skipUnless(os.name == "nt", "Windows access-control regression")
     def test_permissions_work_without_security_privilege_and_preserve_ownership(self):
@@ -348,10 +388,41 @@ public static class TestToken {
         parameters = json.loads((self.root / "parameters.json").read_text())["parameters"]
         self.assertEqual(parameters["openShiftVersion"]["value"], "4.20.1")
         self.assertEqual(parameters["aroServicePrincipalClientSecret"]["value"], "test-secret")
+        self.assertEqual(parameters["onpremServicePrincipalClientId"]["value"], "onprem-client")
+        self.assertEqual(parameters["onpremServicePrincipalClientSecret"]["value"], "onprem-secret")
+        self.assertEqual(parameters["onpremServicePrincipalObjectId"]["value"], "onprem-object")
+        self.assertEqual(parameters["aroResourceProviderObjectId"]["value"], "provider-object")
         self.assertFalse(list(self.credentials.parent.glob("infra-parameters-*")))
         commands = [entry["args"][:3] for entry in self.entries()]
         self.assertLess(commands.index(["deployment", "group", "validate"]),
                         commands.index(["deployment", "group", "create"]))
+
+    def test_infrastructure_rejects_shared_or_missing_cluster_principals_before_cloud_changes(self):
+        self.save_credentials()
+        onprem = self.credentials.parent / "onprem-service-principal.json"
+        for key in ("appId", "objectId"):
+            with self.subTest(key=key):
+                value = {"appId": "onprem-client", "password": "onprem-secret",
+                         "tenant": "test-tenant", "objectId": "onprem-object"}
+                value[key] = json.loads(self.credentials.read_text())[key]
+                onprem.write_text(json.dumps(value))
+                result = self.run_ps("& ./scripts/10-apply-infrastructure.ps1")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unique service principal", result.stderr)
+        onprem.unlink()
+        result = self.run_ps("& ./scripts/10-apply-infrastructure.ps1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ONPREM_SERVICE_PRINCIPAL_CLIENT_ID", result.stderr)
+        self.assertEqual(self.entries(), [])
+
+    def test_missing_resource_provider_identity_stops_before_deployment(self):
+        self.save_credentials()
+        self.env["SHOP_TEST_PROVIDER_EMPTY"] = "1"
+        result = self.run_ps("& ./scripts/10-apply-infrastructure.ps1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("resource provider service principal object ID", result.stderr)
+        self.assertFalse(any(entry["args"][:2] == ["deployment", "group"]
+                             for entry in self.entries()))
 
     def test_capacity_restrictions_stop_before_any_cloud_creation(self):
         self.save_credentials()

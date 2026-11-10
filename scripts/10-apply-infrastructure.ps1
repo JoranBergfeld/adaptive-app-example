@@ -4,7 +4,13 @@
 $config = Get-ShopConfig
 Require-Values $config @('AZURE_RESOURCE_GROUP', 'AZURE_LOCATION', 'KEY_VAULT_NAME',
     'FRONT_DOOR_PROFILE_NAME', 'ARO_SERVICE_PRINCIPAL_CLIENT_ID',
-    'ARO_SERVICE_PRINCIPAL_CLIENT_SECRET', 'ARO_SERVICE_PRINCIPAL_OBJECT_ID')
+    'ARO_SERVICE_PRINCIPAL_CLIENT_SECRET', 'ARO_SERVICE_PRINCIPAL_OBJECT_ID',
+    'ONPREM_SERVICE_PRINCIPAL_CLIENT_ID', 'ONPREM_SERVICE_PRINCIPAL_CLIENT_SECRET',
+    'ONPREM_SERVICE_PRINCIPAL_OBJECT_ID')
+if ($config.ARO_SERVICE_PRINCIPAL_CLIENT_ID -eq $config.ONPREM_SERVICE_PRINCIPAL_CLIENT_ID -or
+    $config.ARO_SERVICE_PRINCIPAL_OBJECT_ID -eq $config.ONPREM_SERVICE_PRINCIPAL_OBJECT_ID) {
+    throw 'ARO requires a unique service principal per cluster. Configure separate ONPREM_SERVICE_PRINCIPAL_* credentials using script 05 -Target onprem.'
+}
 Select-ShopSubscription $config
 Test-ShopCapacity $config
 foreach ($provider in @('Microsoft.Authorization', 'Microsoft.Cache', 'Microsoft.Cdn',
@@ -13,6 +19,12 @@ foreach ($provider in @('Microsoft.Authorization', 'Microsoft.Cache', 'Microsoft
     'Microsoft.RedHatOpenShift', 'Microsoft.Storage')) {
     Invoke-Tool az @('provider', 'register', '--namespace', $provider, '--wait',
         '--only-show-errors', '--output', 'none') | Out-Null
+}
+$providerObjectId = Invoke-Tool az @('ad', 'sp', 'show', '--id',
+    'f1dd0a37-89c6-4e07-bcd1-ffd3d43d8875', '--query', 'id', '--output', 'tsv',
+    '--only-show-errors')
+if ([string]::IsNullOrWhiteSpace($providerObjectId)) {
+    throw 'Could not resolve the Azure Red Hat OpenShift resource provider service principal object ID.'
 }
 Invoke-Tool az @('group', 'create', '--name', $config.AZURE_RESOURCE_GROUP, '--location',
     $config.AZURE_LOCATION, '--only-show-errors', '--output', 'none') | Out-Null
@@ -37,6 +49,10 @@ $parameters = @{
     aroServicePrincipalClientId = $config.ARO_SERVICE_PRINCIPAL_CLIENT_ID
     aroServicePrincipalClientSecret = $config.ARO_SERVICE_PRINCIPAL_CLIENT_SECRET
     aroServicePrincipalObjectId = $config.ARO_SERVICE_PRINCIPAL_OBJECT_ID
+    onpremServicePrincipalClientId = $config.ONPREM_SERVICE_PRINCIPAL_CLIENT_ID
+    onpremServicePrincipalClientSecret = $config.ONPREM_SERVICE_PRINCIPAL_CLIENT_SECRET
+    onpremServicePrincipalObjectId = $config.ONPREM_SERVICE_PRINCIPAL_OBJECT_ID
+    aroResourceProviderObjectId = $providerObjectId.Trim()
     redHatPullSecret = $pullSecret
     aroClusterName = $config.ARO_CLUSTER_NAME; onpremClusterName = $config.ONPREM_CLUSTER_NAME
 }

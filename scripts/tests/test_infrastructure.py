@@ -11,6 +11,38 @@ AZ = shutil.which("az")
 
 @unittest.skipUnless(AZ, "Azure CLI is not installed")
 class InfrastructureTests(unittest.TestCase):
+    def test_clusters_use_distinct_service_principals(self):
+        template = self.compile_template("main.bicep")
+        clusters = [
+            resource for resource in template["resources"]
+            if resource["type"] == "Microsoft.RedHatOpenShift/openShiftClusters"
+        ]
+        profiles = [cluster["properties"]["servicePrincipalProfile"] for cluster in clusters]
+        self.assertEqual(len(profiles), 2)
+        self.assertEqual(len({profile["clientId"] for profile in profiles}), 2,
+                         "ARO rejects a client ID shared by two clusters")
+        self.assertEqual(len({profile["clientSecret"] for profile in profiles}), 2)
+        self.assertEqual(template["parameters"]["onpremServicePrincipalClientSecret"]["type"],
+                         "securestring")
+
+    def test_resource_provider_has_network_permissions_before_each_cluster(self):
+        template = self.compile_template("main.bicep")
+        roles = [
+            resource for resource in template["resources"]
+            if resource["type"] == "Microsoft.Authorization/roleAssignments"
+            and resource["properties"]["principalId"] ==
+            "[parameters('aroResourceProviderObjectId')]"
+        ]
+        self.assertEqual(len(roles), 2, "ARO's resource provider needs access to both VNets")
+        for role, cluster_name in zip(roles, ("aroClusterName", "onpremClusterName")):
+            self.assertIn(f"parameters('{cluster_name}')", role["scope"])
+            self.assertIn("networkContributorRoleId", role["properties"]["roleDefinitionId"])
+            cluster = next(resource for resource in template["resources"]
+                           if resource["type"] == "Microsoft.RedHatOpenShift/openShiftClusters"
+                           and resource["name"] == f"[parameters('{cluster_name}')]")
+            self.assertTrue(any("aroResourceProviderObjectId" in dependency
+                                for dependency in cluster["dependsOn"]))
+
     @classmethod
     def compile_template(cls, name):
         result = subprocess.run(

@@ -90,6 +90,8 @@ function Get-ShopConfig {
         ARO_MASTER_VM_SIZE = 'Standard_D8s_v5'; ARO_WORKER_VM_SIZE = 'Standard_D4s_v5'
         ARO_SERVICE_PRINCIPAL_CLIENT_ID = ''; ARO_SERVICE_PRINCIPAL_CLIENT_SECRET = ''
         ARO_SERVICE_PRINCIPAL_OBJECT_ID = ''; RED_HAT_PULL_SECRET_FILE = ''
+        ONPREM_SERVICE_PRINCIPAL_CLIENT_ID = ''; ONPREM_SERVICE_PRINCIPAL_CLIENT_SECRET = ''
+        ONPREM_SERVICE_PRINCIPAL_OBJECT_ID = ''
         ARO_CLUSTER_NAME = 'adaptive-aro'; ONPREM_CLUSTER_NAME = 'adaptive-onprem'
         ARO_CONTEXT = 'aro-demo'; ONPREM_CONTEXT = 'onprem-demo'
         RECIPE_REF = 'main'; GITHUB_REPOSITORY = 'JoranBergfeld/adaptive-app-example'
@@ -123,17 +125,23 @@ function Get-ShopConfig {
         if ([string]::IsNullOrWhiteSpace($config[$key])) { $config[$key] = $defaults[$key] }
     }
     $config.FromCredentialsFile = $false
-    $credentialsFile = Join-Path $script:SecretsDir 'service-principal.json'
-    if ((Test-Path -LiteralPath $credentialsFile) -and
-        -not ($config.ARO_SERVICE_PRINCIPAL_CLIENT_ID -or
-              $config.ARO_SERVICE_PRINCIPAL_CLIENT_SECRET -or
-              $config.ARO_SERVICE_PRINCIPAL_OBJECT_ID)) {
-        $credentials = Get-SavedPrincipal
-        $config.ARO_SERVICE_PRINCIPAL_CLIENT_ID = $credentials.appId
-        $config.ARO_SERVICE_PRINCIPAL_CLIENT_SECRET = $credentials.password
-        $config.ARO_SERVICE_PRINCIPAL_OBJECT_ID = $credentials['objectId']
-        if (-not $config.AZURE_TENANT_ID) { $config.AZURE_TENANT_ID = $credentials.tenant }
-        $config.FromCredentialsFile = $true
+    $config.OnpremFromCredentialsFile = $false
+    foreach ($target in @('aro', 'onprem')) {
+        $prefix = $target.ToUpperInvariant()
+        $fileName = if ($target -eq 'aro') { 'service-principal.json' } else { 'onprem-service-principal.json' }
+        $credentialsFile = Join-Path $script:SecretsDir $fileName
+        if ((Test-Path -LiteralPath $credentialsFile) -and
+            -not ($config["${prefix}_SERVICE_PRINCIPAL_CLIENT_ID"] -or
+                  $config["${prefix}_SERVICE_PRINCIPAL_CLIENT_SECRET"] -or
+                  $config["${prefix}_SERVICE_PRINCIPAL_OBJECT_ID"])) {
+            $credentials = Get-SavedPrincipal -Target $target
+            $config["${prefix}_SERVICE_PRINCIPAL_CLIENT_ID"] = $credentials.appId
+            $config["${prefix}_SERVICE_PRINCIPAL_CLIENT_SECRET"] = $credentials.password
+            $config["${prefix}_SERVICE_PRINCIPAL_OBJECT_ID"] = $credentials['objectId']
+            if (-not $config.AZURE_TENANT_ID) { $config.AZURE_TENANT_ID = $credentials.tenant }
+            $flag = if ($target -eq 'aro') { 'FromCredentialsFile' } else { 'OnpremFromCredentialsFile' }
+            $config[$flag] = $true
+        }
     }
     if (-not $config.IMAGE_REGISTRY) {
         $config.IMAGE_REGISTRY = "ghcr.io/$($config.GITHUB_REPOSITORY.ToLowerInvariant())"
@@ -152,7 +160,9 @@ function Get-ShopConfig {
 }
 
 function Get-SavedPrincipal {
-    $path = Join-Path $script:SecretsDir 'service-principal.json'
+    param([ValidateSet('aro', 'onprem')][string]$Target = 'aro')
+    $fileName = if ($Target -eq 'aro') { 'service-principal.json' } else { 'onprem-service-principal.json' }
+    $path = Join-Path $script:SecretsDir $fileName
     $credentials = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable
     foreach ($key in @('appId', 'password', 'tenant')) {
         if ($credentials[$key] -isnot [string] -or -not $credentials[$key]) {

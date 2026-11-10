@@ -25,6 +25,19 @@ param aroServicePrincipalClientSecret string
 @description('Object ID of the ARO service principal.')
 param aroServicePrincipalObjectId string
 
+@description('Client ID of the separate service principal for the on-premises-style cluster.')
+param onpremServicePrincipalClientId string
+
+@secure()
+@description('Client secret for the on-premises-style cluster service principal.')
+param onpremServicePrincipalClientSecret string
+
+@description('Object ID of the on-premises-style cluster service principal.')
+param onpremServicePrincipalObjectId string
+
+@description('Tenant-local object ID of the Azure Red Hat OpenShift resource provider service principal.')
+param aroResourceProviderObjectId string
+
 @secure()
 @description('Optional Red Hat pull secret. Use an empty string to omit it.')
 param redHatPullSecret string = ''
@@ -63,6 +76,15 @@ resource aroContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   properties: {
     roleDefinitionId: contributorRoleId
     principalId: aroServicePrincipalObjectId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource onpremContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, onpremServicePrincipalObjectId, contributorRoleId)
+  properties: {
+    roleDefinitionId: contributorRoleId
+    principalId: onpremServicePrincipalObjectId
     principalType: 'ServicePrincipal'
   }
 }
@@ -132,11 +154,31 @@ resource aroNetworkRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 resource onpremNetworkRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(onpremVnet.id, aroServicePrincipalObjectId, networkContributorRoleId)
+  name: guid(onpremVnet.id, onpremServicePrincipalObjectId, networkContributorRoleId)
   scope: onpremVnet
   properties: {
     roleDefinitionId: networkContributorRoleId
-    principalId: aroServicePrincipalObjectId
+    principalId: onpremServicePrincipalObjectId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource aroProviderNetworkRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(aroVnet.id, aroResourceProviderObjectId, networkContributorRoleId)
+  scope: aroVnet
+  properties: {
+    roleDefinitionId: networkContributorRoleId
+    principalId: aroResourceProviderObjectId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource onpremProviderNetworkRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(onpremVnet.id, aroResourceProviderObjectId, networkContributorRoleId)
+  scope: onpremVnet
+  properties: {
+    roleDefinitionId: networkContributorRoleId
+    principalId: aroResourceProviderObjectId
     principalType: 'ServicePrincipal'
   }
 }
@@ -167,6 +209,7 @@ resource aroCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-prev
   dependsOn: [
     aroContributor
     aroNetworkRole
+    aroProviderNetworkRole
   ]
   properties: {
     apiserverProfile: {
@@ -217,8 +260,9 @@ resource onpremCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-p
   name: onpremClusterName
   location: location
   dependsOn: [
-    aroContributor
+    onpremContributor
     onpremNetworkRole
+    onpremProviderNetworkRole
   ]
   properties: {
     apiserverProfile: {
@@ -249,8 +293,8 @@ resource onpremCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-p
       serviceCidr: '172.31.0.0/16'
     }
     servicePrincipalProfile: {
-      clientId: aroServicePrincipalClientId
-      clientSecret: aroServicePrincipalClientSecret
+      clientId: onpremServicePrincipalClientId
+      clientSecret: onpremServicePrincipalClientSecret
     }
     workerProfiles: [
       {

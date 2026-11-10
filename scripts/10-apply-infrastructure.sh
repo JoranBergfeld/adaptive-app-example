@@ -10,9 +10,15 @@ load_config
 
 for name in AZURE_RESOURCE_GROUP AZURE_LOCATION KEY_VAULT_NAME FRONT_DOOR_PROFILE_NAME \
   ARO_SERVICE_PRINCIPAL_CLIENT_ID ARO_SERVICE_PRINCIPAL_CLIENT_SECRET \
-  ARO_SERVICE_PRINCIPAL_OBJECT_ID; do
+  ARO_SERVICE_PRINCIPAL_OBJECT_ID ONPREM_SERVICE_PRINCIPAL_CLIENT_ID \
+  ONPREM_SERVICE_PRINCIPAL_CLIENT_SECRET ONPREM_SERVICE_PRINCIPAL_OBJECT_ID; do
   require_value "$name"
 done
+if [[ "${ARO_SERVICE_PRINCIPAL_CLIENT_ID,,}" == "${ONPREM_SERVICE_PRINCIPAL_CLIENT_ID,,}" ||
+  "${ARO_SERVICE_PRINCIPAL_OBJECT_ID,,}" == "${ONPREM_SERVICE_PRINCIPAL_OBJECT_ID,,}" ]]; then
+  printf 'ARO requires a unique service principal per cluster. Configure separate ONPREM_SERVICE_PRINCIPAL_* credentials using script 05 onprem.\n' >&2
+  exit 1
+fi
 require_command az
 require_command jq
 require_command sort
@@ -38,6 +44,13 @@ for provider in \
     --wait \
     --only-show-errors
 done
+provider_object_id="$(az ad sp show \
+  --id f1dd0a37-89c6-4e07-bcd1-ffd3d43d8875 \
+  --query id --output tsv --only-show-errors)"
+if [[ -z "$provider_object_id" ]]; then
+  printf 'Could not resolve the Azure Red Hat OpenShift resource provider service principal object ID.\n' >&2
+  exit 1
+fi
 az group create \
   --name "$AZURE_RESOURCE_GROUP" \
   --location "$AZURE_LOCATION" \
@@ -84,6 +97,10 @@ jq -n \
   --arg aroServicePrincipalClientId "$ARO_SERVICE_PRINCIPAL_CLIENT_ID" \
   --arg aroServicePrincipalClientSecret "$ARO_SERVICE_PRINCIPAL_CLIENT_SECRET" \
   --arg aroServicePrincipalObjectId "$ARO_SERVICE_PRINCIPAL_OBJECT_ID" \
+  --arg onpremServicePrincipalClientId "$ONPREM_SERVICE_PRINCIPAL_CLIENT_ID" \
+  --arg onpremServicePrincipalClientSecret "$ONPREM_SERVICE_PRINCIPAL_CLIENT_SECRET" \
+  --arg onpremServicePrincipalObjectId "$ONPREM_SERVICE_PRINCIPAL_OBJECT_ID" \
+  --arg aroResourceProviderObjectId "$provider_object_id" \
   --arg redHatPullSecret "$pull_secret" \
   --arg aroClusterName "$ARO_CLUSTER_NAME" \
   --arg onpremClusterName "$ONPREM_CLUSTER_NAME" \
@@ -101,6 +118,10 @@ jq -n \
       aroServicePrincipalClientId: {value: $aroServicePrincipalClientId},
       aroServicePrincipalClientSecret: {value: $aroServicePrincipalClientSecret},
       aroServicePrincipalObjectId: {value: $aroServicePrincipalObjectId},
+      onpremServicePrincipalClientId: {value: $onpremServicePrincipalClientId},
+      onpremServicePrincipalClientSecret: {value: $onpremServicePrincipalClientSecret},
+      onpremServicePrincipalObjectId: {value: $onpremServicePrincipalObjectId},
+      aroResourceProviderObjectId: {value: $aroResourceProviderObjectId},
       redHatPullSecret: {value: $redHatPullSecret},
       aroClusterName: {value: $aroClusterName},
       onpremClusterName: {value: $onpremClusterName}
