@@ -178,6 +178,7 @@ resource aroCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-prev
       }
     ]
     masterProfile: {
+      encryptionAtHost: 'Disabled'
       vmSize: 'Standard_D8s_v5'
       subnetId: aroMasterSubnet.id
     }
@@ -194,6 +195,7 @@ resource aroCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-prev
       {
         name: 'worker'
         count: 3
+        encryptionAtHost: 'Disabled'
         vmSize: 'Standard_D4s_v5'
         diskSizeGB: 128
         subnetId: aroWorkerSubnet.id
@@ -228,6 +230,7 @@ resource onpremCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-p
       }
     ]
     masterProfile: {
+      encryptionAtHost: 'Disabled'
       vmSize: 'Standard_D8s_v5'
       subnetId: onpremMasterSubnet.id
     }
@@ -244,6 +247,7 @@ resource onpremCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-p
       {
         name: 'worker'
         count: 3
+        encryptionAtHost: 'Disabled'
         vmSize: 'Standard_D4s_v5'
         diskSizeGB: 128
         subnetId: onpremWorkerSubnet.id

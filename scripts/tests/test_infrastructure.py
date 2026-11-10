@@ -84,6 +84,21 @@ class InfrastructureTests(unittest.TestCase):
         for cluster in clusters:
             self.assertEqual(cluster["properties"]["networkProfile"]["outboundType"], "Loadbalancer")
 
+    def test_master_and_worker_profiles_explicitly_disable_encryption_at_host(self):
+        template = self.compile_template("main.bicep")
+        clusters = [
+            resource for resource in template["resources"]
+            if resource["type"] == "Microsoft.RedHatOpenShift/openShiftClusters"
+        ]
+        self.assertEqual(len(clusters), 2)
+        for cluster in clusters:
+            properties = cluster["properties"]
+            self.assertEqual(len(properties["workerProfiles"]), 1)
+            profiles = [properties["masterProfile"], *properties["workerProfiles"]]
+            for index, profile in enumerate(profiles):
+                with self.subTest(cluster=cluster["name"], profile=index):
+                    self.assertEqual(profile.get("encryptionAtHost"), "Disabled")
+
     def test_initial_infrastructure_does_not_create_route_without_origins(self):
         template = self.compile_template("main.bicep")
         self.assertFalse(any(

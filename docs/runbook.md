@@ -36,6 +36,9 @@ The steps below use Bash; each operation also has a `.ps1` equivalent.
    managed resource-group ID points to a separate `aro-managed-<hash>` group in
    the same subscription, which ARO creates and manages. Do not pre-create these
    groups or reuse the demo resource group for them.
+   Both master and worker profiles explicitly set `encryptionAtHost` to
+   `Disabled`, as the ARO API rejects an omitted value. This does not disable
+   Azure managed-disk encryption at rest.
    Front Door provisioning creates the profile, endpoint, and
    origin group only; Azure requires an enabled origin before a route can be
    created.

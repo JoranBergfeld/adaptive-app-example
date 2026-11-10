@@ -69,6 +69,9 @@ subscription, named `aro-managed-<hash>`. ARO creates and manages those groups;
 do not pre-create them or use the demo resource group as their ID. No domain
 or managed resource-group setting is required in `.env`. Front Door's route is
 deferred until script `90` enables an application origin.
+Both clusters explicitly set `encryptionAtHost: Disabled` on master and worker
+profiles; this field cannot be omitted with the selected ARO API version.
+Azure managed-disk encryption at rest remains enabled.
 
 Switch Azure CLI to the demo principal, then install the platforms and deploy:
 
@@ -132,6 +135,7 @@ subscription; see [known limitations](limitations.md).
 
 If script `10` rejects `properties.clusterProfile.domain` (including a generated
 label starting with a digit), reports an empty `properties.clusterProfile.resourceGroupId`,
+rejects an empty `properties.masterProfile.encryptionAtHost` or worker-profile equivalent,
 or asks for an enabled Front Door origin, use the updated templates and scripts together
 and rerun `.\scripts\10-apply-infrastructure.ps1` from that checkout. These are
 template errors, not a PowerShell execution-policy or service-principal secret
